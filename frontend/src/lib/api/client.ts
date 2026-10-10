@@ -66,10 +66,9 @@ export class ApiClient {
 	}
 
 	async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-		const url = new URL(
-			path.startsWith('/') ? path : `/${path}`,
-			this.baseUrl.replace(/\/$/, '') + '/'
-		);
+		const cleanBase = this.baseUrl.replace(/\/+$/, '');
+		const cleanPath = path.replace(/^\/+/, '');
+		const url = new URL(`${cleanBase}/${cleanPath}`);
 
 		if (options.params) {
 			for (const [key, value] of Object.entries(options.params)) {
@@ -103,7 +102,12 @@ export class ApiClient {
 		}
 
 		// Handle transparent 401 token expiration refresh if refreshHandler is available
-		if (response.status === 401 && this.refreshHandler && !path.includes('/auth/refresh') && !path.includes('/auth/otp')) {
+		if (
+			response.status === 401 &&
+			this.refreshHandler &&
+			!path.includes('/auth/refresh') &&
+			!path.includes('/auth/otp')
+		) {
 			const newAccessToken = await this.refreshHandler();
 			if (newAccessToken) {
 				headers.set('Authorization', `Bearer ${newAccessToken}`);

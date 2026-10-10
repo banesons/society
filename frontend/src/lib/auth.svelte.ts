@@ -1,9 +1,12 @@
 import { api, ApiClientError } from '$lib/api/client';
+import type { UserSocietyAssignment } from '$lib/api/society';
 
 export interface UserProfile {
 	id: string;
 	phone: string;
 	status: string;
+	platform_roles?: string[];
+	society_assignments?: UserSocietyAssignment[];
 }
 
 export interface AuthVerifyResult {
@@ -11,6 +14,7 @@ export interface AuthVerifyResult {
 	refresh_token: string;
 	expires_in: number;
 	user: UserProfile;
+	session_replaced?: boolean;
 }
 
 export interface RefreshResult {
@@ -26,7 +30,23 @@ class AuthStore {
 	isLoading = $state<boolean>(true);
 	isLoginOpen = $state<boolean>(false);
 	error = $state<string | null>(null);
+	sessionReplaced = $state<boolean>(false);
 	private refreshToken: string | null = null;
+
+	get isSuperAdmin(): boolean {
+		return Boolean(this.user?.platform_roles?.includes('SUPER_ADMIN'));
+	}
+
+	get isPlatformAdmin(): boolean {
+		return Boolean(
+			this.user?.platform_roles?.includes('SUPER_ADMIN') ||
+			this.user?.platform_roles?.includes('ADMIN')
+		);
+	}
+
+	get isSocietyAdmin(): boolean {
+		return Boolean(this.user?.society_assignments && this.user.society_assignments.length > 0);
+	}
 
 	openLogin() {
 		this.isLoginOpen = true;
@@ -64,6 +84,10 @@ class AuthStore {
 		this.isLoading = false;
 	}
 
+	dismissSessionReplacedNotice() {
+		this.sessionReplaced = false;
+	}
+
 	async sendOTP(phone: string): Promise<number> {
 		this.error = null;
 		const res = await api.post<{ resend_after_seconds: number }>('/auth/otp/send', {
@@ -72,7 +96,7 @@ class AuthStore {
 		return res.resend_after_seconds;
 	}
 
-	async verifyOTP(phone: string, otp: string): Promise<void> {
+	async verifyOTP(phone: string, otp: string): Promise<AuthVerifyResult> {
 		this.error = null;
 		this.isLoading = true;
 		try {
@@ -83,7 +107,9 @@ class AuthStore {
 
 			this.setTokens(res.access_token, res.refresh_token);
 			this.user = res.user;
+			this.sessionReplaced = Boolean(res.session_replaced);
 			this.isAuthenticated = true;
+			return res;
 		} catch (err: unknown) {
 			if (err instanceof ApiClientError) {
 				this.error = err.message;
@@ -119,8 +145,10 @@ class AuthStore {
 			const user = await api.get<UserProfile>('/auth/me');
 			this.user = user;
 			this.isAuthenticated = true;
-		} catch {
-			this.clearSession();
+		} catch (err: unknown) {
+			if (err instanceof ApiClientError && err.statusCode === 401) {
+				this.clearSession();
+			}
 		}
 	}
 
@@ -157,6 +185,7 @@ class AuthStore {
 		this.refreshToken = null;
 		this.user = null;
 		this.isAuthenticated = false;
+		this.sessionReplaced = false;
 		if (typeof window !== 'undefined') {
 			sessionStorage.removeItem('chs_refresh_token');
 		}

@@ -10,6 +10,8 @@ import (
 	"chs/backend/internal/auth"
 	"chs/backend/internal/config"
 	"chs/backend/internal/database"
+	"chs/backend/internal/platform"
+	"chs/backend/internal/society"
 )
 
 // Server wraps the HTTP server instance.
@@ -20,8 +22,8 @@ type Server struct {
 }
 
 // New creates a new Server instance.
-func New(cfg *config.Config, logger *slog.Logger, db *database.DB, authService *auth.Service, tokenManager *auth.TokenManager) *Server {
-	router := SetupRouter(cfg, logger, db, authService, tokenManager)
+func New(cfg *config.Config, logger *slog.Logger, db *database.DB, authService *auth.Service, tokenManager *auth.TokenManager, platformRepo *platform.Repository, societyRepo *society.Repository) *Server {
+	router := SetupRouter(cfg, logger, db, authService, tokenManager, platformRepo, societyRepo)
 
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%s", cfg.Port),

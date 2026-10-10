@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -16,13 +17,16 @@ const (
 	SessionIDContextKey contextKey = "session_id"
 )
 
-// Authenticate verifies the incoming Bearer token using TokenManager and sets user_id and session_id in context.
-func Authenticate(tm *auth.TokenManager) func(http.Handler) http.Handler {
+// Authenticate verifies the incoming Bearer token using TokenManager,
+// enforces active server-side session validation using SessionValidator,
+// and sets user_id and session_id in the request context.
+func Authenticate(tm *auth.TokenManager, validator auth.SessionValidator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reqID := GetRequestID(r.Context())
+
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-				reqID := GetRequestID(r.Context())
 				response.Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing or invalid Authorization header", reqID)
 				return
 			}
@@ -30,7 +34,6 @@ func Authenticate(tm *auth.TokenManager) func(http.Handler) http.Handler {
 			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 			claims, err := tm.ValidateAccessToken(tokenStr)
 			if err != nil {
-				reqID := GetRequestID(r.Context())
 				code := "INVALID_TOKEN"
 				if err == auth.ErrTokenExpired {
 					code = "TOKEN_EXPIRED"
@@ -41,8 +44,28 @@ func Authenticate(tm *auth.TokenManager) func(http.Handler) http.Handler {
 
 			userID, err := uuid.Parse(claims.Subject)
 			if err != nil {
-				reqID := GetRequestID(r.Context())
 				response.Error(w, http.StatusUnauthorized, "INVALID_TOKEN", "Malformed user identifier in token", reqID)
+				return
+			}
+
+			// Fail closed: enforce server-side active session validation
+			if validator == nil {
+				response.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Session validator unavailable", reqID)
+				return
+			}
+
+			if err := validator.ValidateSession(r.Context(), userID, claims.SessionID); err != nil {
+				switch {
+				case errors.Is(err, auth.ErrSessionRevoked):
+					response.Error(w, http.StatusUnauthorized, "SESSION_REVOKED", "Session has been revoked", reqID)
+				case errors.Is(err, auth.ErrSessionExpired):
+					response.Error(w, http.StatusUnauthorized, "SESSION_EXPIRED", "Session has expired", reqID)
+				case errors.Is(err, auth.ErrSessionNotFound), errors.Is(err, auth.ErrSessionMismatch):
+					response.Error(w, http.StatusUnauthorized, "SESSION_INVALID", "Invalid or unknown session", reqID)
+				default:
+					// Database query failure: Fail closed with 500 INTERNAL_ERROR
+					response.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to verify session status", reqID)
+				}
 				return
 			}
 

@@ -67,21 +67,30 @@ CHS implements a self-sovereign authentication engine within the Go backend, uti
 - If the normalized phone does not exist in `users` upon successful OTP verification, a new record is provisioned with `status = 'ACTIVE'`.
 - If the user exists, their account is loaded and their login timestamp updated.
 
-### 5. Session & Device Management (`internal/auth/session.go`)
+### 5. Session & Device Management (`internal/auth/service.go`)
 - Enforces a strict limit of **maximum 2 concurrent active sessions** per user.
-- A 3rd login attempt returns `SESSION_LIMIT_REACHED` requiring the user to log out an existing device.
-- Refresh tokens are rotated on each `/auth/refresh` invocation. Reused or revoked tokens trigger immediate session termination.
+- **Automatic FIFO Session Replacement (ADR 011)**:
+  - When 2 active sessions already exist, a successful OTP verification automatically revokes the oldest active session and provisions the new session atomically within a single database transaction.
+  - Eviction ordering is authoritative: `created_at ASC` with `id ASC` as deterministic tie-breaker.
+  - Concurrency safety: Serialized per-user using PostgreSQL transaction row locking (`SELECT id FROM users WHERE id = $1 FOR UPDATE` and `FOR UPDATE` on active sessions).
+  - Failed transactions atomically roll back any revocations.
+- **Server-Side Active Session Enforcement (ADR 010)**:
+  - Every authenticated request verifies that the embedded `session_id` exists in `user_sessions`, matches the authenticated `user_id`, is unexpired (`expires_at > NOW()`), and has not been revoked (`revoked_at IS NULL`).
+  - Sessions revoked via FIFO replacement, `POST /auth/logout`, `POST /auth/logout-all`, or administrative deactivation are blocked **immediately** on all protected API routes with HTTP 401 `SESSION_REVOKED`.
+  - Database lookup is performed via primary key index scan on `user_sessions(id)` ($O(1)$ latency, $<1$ms), avoiding the security hazards of unbounded/stale in-memory token caches.
+  - Fail-closed design: Any database error during session verification aborts request processing with HTTP 500 `INTERNAL_ERROR`.
 
 ### 6. Token Authority (`internal/auth/token.go`)
 - Asymmetric signing with **Ed25519**.
-- Short-lived Access Tokens (15 minutes).
+- Short-lived Access Tokens (15 minutes) embedding `session_id` and `sub`.
 - Opaque random Refresh Tokens (30 days) stored as SHA-256 hashes in `user_sessions`.
 
 ## Authentication Middleware (`internal/middleware/auth.go`)
 - Extracts `Authorization: Bearer <token>` from HTTP requests.
-- Verifies Ed25519 signature, algorithm, and claims expiration.
-- Injects `user_id` and `session_id` into `r.Context()`.
-- Unauthenticated or expired requests receive standard 401 error envelopes.
+- Validates Ed25519 signature, algorithm, and claims expiration.
+- Invokes `SessionValidator.ValidateSession(ctx, userID, sessionID)` against PostgreSQL to verify active status.
+- Rejects revoked sessions with HTTP 401 `SESSION_REVOKED`, expired sessions with `SESSION_EXPIRED`, unknown/mismatched sessions with `SESSION_INVALID`, and database errors with 500 `INTERNAL_ERROR`.
+- Injects validated `user_id` and `session_id` into `r.Context()`.
 
 ## Related Documentation
 - [[../decisions/007-phone-identity|ADR 007: Phone Identity]]

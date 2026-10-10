@@ -11,8 +11,10 @@ import (
 	"chs/backend/internal/auth"
 	"chs/backend/internal/config"
 	"chs/backend/internal/database"
+	"chs/backend/internal/platform"
 	"chs/backend/internal/server"
 	"chs/backend/internal/sms"
+	"chs/backend/internal/society"
 )
 
 func main() {
@@ -53,8 +55,11 @@ func main() {
 	smsProvider := sms.NewMockProvider(logger)
 	rateLimiter := auth.NewRateLimiter()
 
-	// Initialize Auth Service
+	// Initialize Services & Repositories
 	var authService *auth.Service
+	var platformRepo *platform.Repository
+	var societyRepo *society.Repository
+
 	if db != nil && db.IsConnected() {
 		authService = auth.NewService(
 			db.Pool(),
@@ -68,10 +73,25 @@ func main() {
 			logger,
 		)
 		logger.Info("authentication service initialized")
+
+		platformRepo = platform.NewRepository(db.Pool())
+		societyRepo = society.NewRepository(db.Pool())
+		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer bootstrapCancel()
+
+		if role, err := platformRepo.BootstrapSuperAdmin(bootstrapCtx, cfg.SuperAdminPhone); err != nil {
+			logger.Warn("super admin bootstrap skipped or failed", slog.String("error", err.Error()))
+		} else {
+			logger.Info("super admin bootstrap verified",
+				slog.String("user_id", role.UserID.String()),
+				slog.String("role", role.Role),
+				slog.String("status", role.Status),
+			)
+		}
 	}
 
 	// Initialize HTTP server
-	srv := server.New(cfg, logger, db, authService, tokenManager)
+	srv := server.New(cfg, logger, db, authService, tokenManager, platformRepo, societyRepo)
 
 	// Start server in background
 	go func() {

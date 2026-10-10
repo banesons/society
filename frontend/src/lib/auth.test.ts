@@ -2,11 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { auth } from './auth.svelte';
 import { api } from './api/client';
 
+interface TestAuth {
+	user: unknown;
+	isAuthenticated: boolean;
+	clearSession(): void;
+}
+
+const testAuth = auth as unknown as TestAuth;
+
 describe('AuthStore', () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
-		// Reset auth state
-		(auth as any).clearSession();
+		testAuth.clearSession();
 	});
 
 	it('initializes with unauthenticated default state', () => {
@@ -49,19 +56,47 @@ describe('AuthStore', () => {
 
 		expect(auth.isAuthenticated).toBe(true);
 		expect(auth.user).toEqual(mockResult.user);
+		expect(auth.sessionReplaced).toBe(false);
+	});
+
+	it('verifyOTP sets sessionReplaced=true when reported by backend on 3rd login', async () => {
+		const mockResult = {
+			access_token: 'fake-jwt-3',
+			refresh_token: 'fake-refresh-3',
+			expires_in: 900,
+			user: {
+				id: 'usr-123',
+				phone: '+91 9967xxxx01',
+				status: 'ACTIVE'
+			},
+			session_replaced: true
+		};
+
+		vi.spyOn(api, 'post').mockResolvedValue(mockResult);
+
+		await auth.verifyOTP('+919967089101', '123456');
+
+		expect(auth.isAuthenticated).toBe(true);
+		expect(auth.sessionReplaced).toBe(true);
+
+		// Dismiss notice
+		auth.dismissSessionReplacedNotice();
+		expect(auth.sessionReplaced).toBe(false);
 	});
 
 	it('logout clears session state and calls backend', async () => {
 		const postSpy = vi.spyOn(api, 'post').mockResolvedValue({});
 
 		// Set active state
-		(auth as any).user = { id: '1', phone: '+91 9967xxxx01', status: 'ACTIVE' };
-		(auth as any).isAuthenticated = true;
+		testAuth.user = { id: '1', phone: '+91 9967xxxx01', status: 'ACTIVE' };
+		testAuth.isAuthenticated = true;
+		auth.sessionReplaced = true;
 
 		await auth.logout();
 
 		expect(postSpy).toHaveBeenCalledWith('/auth/logout');
 		expect(auth.isAuthenticated).toBe(false);
 		expect(auth.user).toBeNull();
+		expect(auth.sessionReplaced).toBe(false);
 	});
 });

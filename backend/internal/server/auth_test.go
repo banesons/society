@@ -45,7 +45,7 @@ func TestAuthEndpoints(t *testing.T) {
 		logger,
 	)
 
-	router := SetupRouter(cfg, logger, nil, authService, tm)
+	router := SetupRouter(cfg, logger, nil, authService, tm, nil, nil)
 
 	t.Run("POST /auth/otp/send with valid phone", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"phone": "9967089101"})

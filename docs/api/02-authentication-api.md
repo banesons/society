@@ -60,17 +60,18 @@ Verifies the OTP, provisions the user if new (JIT), checks active device limits,
         "id": "c7a8b4e2-6d1a-4c28-98e3-05f7c32a84b1",
         "phone": "+91 9967xxxx01",
         "status": "ACTIVE"
-      }
+      },
+      "session_replaced": true
     },
     "meta": null
   }
   ```
+  *Note: `session_replaced` is `true` if an existing oldest session was automatically revoked via FIFO replacement to maintain the 2-device limit.*
 - **Error Codes**:
   - `INVALID_PHONE`: Invalid phone number format.
   - `OTP_INVALID`: OTP does not match.
   - `OTP_EXPIRED`: OTP expired (validity is 5 minutes).
   - `OTP_ATTEMPTS_EXCEEDED`: Max 3 attempts reached; OTP invalidated.
-  - `SESSION_LIMIT_REACHED`: User already has 2 active devices. Must log out from an existing device first.
 
 ---
 
@@ -167,6 +168,24 @@ Retrieves the identity details of the authenticated user.
 - **Error Codes**:
   - `UNAUTHORIZED`: Missing or invalid Bearer token.
   - `TOKEN_EXPIRED`: Access token expired.
+  - `SESSION_REVOKED`: Session was revoked via logout, FIFO replacement, or administrative deactivation.
+  - `SESSION_EXPIRED`: Underlying server-side session expired.
+  - `SESSION_INVALID`: Session record not found or mismatched with user identity.
+  - `INTERNAL_ERROR`: Session verification failure (fails closed).
+
+## Common Authentication Errors on Protected Routes
+
+Every protected route enforced by `middleware.Authenticate` performs cryptographic validation and server-side session checks. The standard error envelopes returned are:
+
+| Code | HTTP Status | Meaning |
+| :--- | :--- | :--- |
+| `UNAUTHORIZED` | 401 | Missing or malformed `Authorization: Bearer <token>` header |
+| `INVALID_TOKEN` | 401 | Invalid Ed25519 signature or corrupt JWT claims |
+| `TOKEN_EXPIRED` | 401 | Access JWT 15-minute validity window expired |
+| `SESSION_REVOKED` | 401 | Session was revoked via FIFO eviction, logout, or deactivation |
+| `SESSION_EXPIRED` | 401 | Stateful session exceeded 30-day lifespan |
+| `SESSION_INVALID` | 401 | Session ID does not exist in `user_sessions` or user mismatch |
+| `INTERNAL_ERROR` | 500 | Database connection failure during session validation (fail-closed) |
 
 ## Related Documentation
 - [[../architecture/05-authentication|Authentication Architecture]]

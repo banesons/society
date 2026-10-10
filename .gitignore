@@ -17,6 +17,7 @@ supabase/.temp/
 # Go Build Artifacts
 backend/bin/
 backend/dist/
+backend/api
 *.exe
 *.test
 *.out

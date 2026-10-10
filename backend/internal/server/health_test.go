@@ -21,7 +21,7 @@ func TestHealthEndpoint(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	// Test router without database connection
-	router := SetupRouter(cfg, logger, nil, nil, nil)
+	router := SetupRouter(cfg, logger, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 	rec := httptest.NewRecorder()
@@ -73,7 +73,7 @@ func TestNotFoundEndpoint(t *testing.T) {
 		AllowedOrigins: []string{"http://localhost:5173"},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	router := SetupRouter(cfg, logger, nil, nil, nil)
+	router := SetupRouter(cfg, logger, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/unknown-endpoint", nil)
 	rec := httptest.NewRecorder()

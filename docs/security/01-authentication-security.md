@@ -8,8 +8,25 @@
 | **Brute Force OTP Guessing** | Account compromise | - Cryptographic 6-digit space (1,000,000 possibilities)<br>- Hard limit of 3 attempts per OTP<br>- Instant OTP invalidation on 3rd failure |
 | **Plaintext Credential Theft** | Database compromise exposure | - OTPs hashed with SHA-256 before storage<br>- Refresh tokens stored only as SHA-256 hashes |
 | **Token Theft / Replay** | Session hijacking | - 15-minute access token lifespan<br>- Refresh token rotation on every use<br>- Automatic session revocation on reused refresh token |
-| **Account Sharing / Credential Leak** | Unauthorized access | - Strict 2-device limit per user account<br>- Global `logout-all` revocation capability |
+| **Account Sharing / Credential Leak** | Unauthorized access | - Strict 2-device limit per user account with automatic FIFO session eviction<br>- Immediate refresh token invalidation for evicted sessions<br>- Global `logout-all` revocation capability |
 | **PII Exposure** | Privacy violation / scrapers | - API endpoints mask phone numbers (`+91 9967xxxx01`)<br>- Full phone numbers never exposed to frontend |
+
+---
+
+## Session Revocation & Eviction Boundaries
+
+1. **Immediate Revocation Across All Endpoints (ADR 010)**:
+   - When an existing session is evicted via FIFO replacement, logged out (`/auth/logout`), or invalidated globally (`/auth/logout-all`), its database record has `revoked_at` set to `NOW()`.
+   - Every protected API request performs an authoritative primary-key index lookup against `user_sessions` to verify that `revoked_at IS NULL` and `expires_at > NOW()`.
+   - Any request carrying an access JWT for a revoked session is immediately terminated with HTTP 401 `SESSION_REVOKED`. The previous 15-minute validity window for revoked sessions is completely closed.
+2. **Database Lookup Cost & Caching Rationale**:
+   - Query: `SELECT user_id, expires_at, revoked_at FROM user_sessions WHERE id = $1`
+   - Cost: $O(1)$ single-row B-tree primary key index scan ($<1$ms latency).
+   - Unbounded/stale caches (e.g. in-memory token maps) were deliberately avoided to eliminate cache invalidation delays and multi-instance synchronization holes. Immediate revocation is guaranteed across all cluster nodes.
+3. **Fail-Closed Security**:
+   - If PostgreSQL session validation cannot be completed due to network or pool errors, the request is aborted with HTTP 500 `INTERNAL_ERROR`. The system never fails open.
+4. **Platform Administrative Shield**:
+   - Platform routes (`/api/v1/platform/*`) additionally verify active administrative status in `platform_roles` (`RequireSuperAdmin`), providing defense-in-depth against suspended administrators.
 
 ---
 

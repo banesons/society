@@ -85,8 +85,8 @@ func MaskPhone(phone string) string {
 	// Prefix: 9967 (first 4 digits of 10)
 	// Mask: xxxx (middle 4 digits)
 	// Suffix: 01 (last 2 digits)
-	country := phone[:3]       // +91
-	prefix := phone[3:7]       // 9967
+	country := phone[:3]           // +91
+	prefix := phone[3:7]           // 9967
 	suffix := phone[len(phone)-2:] // 01
 
 	return country + " " + prefix + "xxxx" + suffix

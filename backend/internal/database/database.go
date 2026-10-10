@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -29,6 +30,9 @@ func Connect(ctx context.Context, databaseURL string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse database configuration: %w", err)
 	}
+
+	// PgBouncer pooler compatibility (prevents SQLSTATE 42P05 prepared statement collision)
+	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
 	// Sane defaults for connection pooling
 	config.MaxConns = 10

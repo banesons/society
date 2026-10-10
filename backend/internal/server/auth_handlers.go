@@ -7,7 +7,9 @@ import (
 
 	"chs/backend/internal/auth"
 	"chs/backend/internal/middleware"
+	"chs/backend/internal/platform"
 	"chs/backend/internal/response"
+	"chs/backend/internal/society"
 )
 
 type SendOTPRequest struct {
@@ -57,7 +59,7 @@ func SendOTPHandler(svc *auth.Service) http.HandlerFunc {
 }
 
 // VerifyOTPHandler handles POST /api/v1/auth/otp/verify.
-func VerifyOTPHandler(svc *auth.Service) http.HandlerFunc {
+func VerifyOTPHandler(svc *auth.Service, platformRepo *platform.Repository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		reqID := middleware.GetRequestID(r.Context())
 
@@ -94,6 +96,12 @@ func VerifyOTPHandler(svc *auth.Service) http.HandlerFunc {
 			return
 		}
 
+		if platformRepo != nil {
+			if roles, err := platformRepo.GetUserPlatformRoles(r.Context(), result.User.ID); err == nil && roles != nil {
+				result.User.PlatformRoles = roles
+			}
+		}
+
 		response.Success(w, http.StatusOK, result, nil)
 	}
 }
@@ -119,6 +127,8 @@ func RefreshTokenHandler(svc *auth.Service) http.HandlerFunc {
 				response.Error(w, http.StatusUnauthorized, "INVALID_TOKEN", "Invalid refresh token", reqID)
 			case errors.Is(err, auth.ErrTokenExpired):
 				response.Error(w, http.StatusUnauthorized, "TOKEN_EXPIRED", "Refresh token has expired", reqID)
+			case errors.Is(err, auth.ErrSessionRevoked):
+				response.Error(w, http.StatusUnauthorized, "SESSION_REVOKED", "Session was previously revoked", reqID)
 			case errors.Is(err, auth.ErrRefreshTokenReused):
 				response.Error(w, http.StatusUnauthorized, "REFRESH_TOKEN_REUSED", "Suspicious token reuse detected; session revoked", reqID)
 			default:
@@ -176,7 +186,7 @@ func LogoutAllHandler(svc *auth.Service) http.HandlerFunc {
 }
 
 // MeHandler handles GET /api/v1/auth/me.
-func MeHandler(svc *auth.Service) http.HandlerFunc {
+func MeHandler(svc *auth.Service, platformRepo *platform.Repository, societyRepo *society.Repository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		reqID := middleware.GetRequestID(r.Context())
 
@@ -192,10 +202,31 @@ func MeHandler(svc *auth.Service) http.HandlerFunc {
 			return
 		}
 
+		platformRoles := []string{}
+		if platformRepo != nil {
+			if roles, err := platformRepo.GetUserPlatformRoles(r.Context(), userID); err == nil && roles != nil {
+				platformRoles = roles
+			}
+		}
+
+		societyAssignments := []society.UserSocietyAssignment{}
+		if societyRepo != nil {
+			if assignments, err := societyRepo.ListUserSocietyAssignments(r.Context(), userID); err == nil && assignments != nil {
+				societyAssignments = assignments
+			}
+		}
+
 		response.Success(w, http.StatusOK, map[string]interface{}{
-			"id":     user.ID,
-			"phone":  user.Phone,
-			"status": user.Status,
+			"id":                  user.ID,
+			"phone":               auth.MaskPhone(user.Phone),
+			"status":              user.Status,
+			"platform_roles":      platformRoles,
+			"society_assignments": societyAssignments,
+			"user": map[string]interface{}{
+				"id":     user.ID,
+				"phone":  auth.MaskPhone(user.Phone),
+				"status": user.Status,
+			},
 		}, nil)
 	}
 }

@@ -19,25 +19,36 @@ var (
 	ErrOTPExpired          = errors.New("verification code has expired")
 	ErrOTPAttemptsExceeded = errors.New("maximum verification attempts exceeded")
 	ErrSessionLimitReached = errors.New("maximum active devices reached, please log out from another device")
+	ErrSessionRevoked      = errors.New("session has been revoked")
+	ErrSessionNotFound     = errors.New("session not found")
+	ErrSessionExpired      = errors.New("session has expired")
+	ErrSessionMismatch     = errors.New("session does not belong to user")
 	ErrRefreshTokenReused  = errors.New("refresh token was already used or revoked")
 	ErrUserNotFound        = errors.New("user not found")
 )
 
+// SessionValidator abstracts server-side session status checks.
+type SessionValidator interface {
+	ValidateSession(ctx context.Context, userID, sessionID uuid.UUID) error
+}
+
 // User represents the core platform user identity.
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	Phone     string    `json:"phone"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            uuid.UUID `json:"id"`
+	Phone         string    `json:"phone"`
+	Status        string    `json:"status"`
+	PlatformRoles []string  `json:"platform_roles,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // AuthResult contains the issued tokens and authenticated user info.
 type AuthResult struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int64  `json:"expires_in"` // seconds (900 = 15m)
-	User         User   `json:"user"`
+	AccessToken     string `json:"access_token"`
+	RefreshToken    string `json:"refresh_token"`
+	ExpiresIn       int64  `json:"expires_in"` // seconds (900 = 15m)
+	User            User   `json:"user"`
+	SessionReplaced bool   `json:"session_replaced,omitempty"`
 }
 
 // TokenRefreshResult holds the new access token and rotated refresh token.
@@ -227,23 +238,71 @@ func (s *Service) VerifyOTP(ctx context.Context, rawPhone, candidateOTP, userAge
 		}
 	}
 
-	// 3. Enforce 2-device active session limit (ADR 011)
-	var activeCount int
-	countQuery := `
-		SELECT count(*)
+	// 3. Concurrency-safe session management with FIFO replacement (Max 2 devices)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin session transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Acquire exclusive user-level row lock on users table to serialize concurrent logins
+	var lockedUserID uuid.UUID
+	lockQuery := `SELECT id FROM users WHERE id = $1 FOR UPDATE`
+	if err := tx.QueryRow(ctx, lockQuery, user.ID).Scan(&lockedUserID); err != nil {
+		return nil, fmt.Errorf("failed to acquire user session lock: %w", err)
+	}
+
+	// Read currently active sessions ordered deterministically:
+	// Earliest created_at first (FIFO), with session ID as secondary tie-breaker.
+	// Lock active session rows.
+	activeSessionsQuery := `
+		SELECT id, created_at
 		FROM user_sessions
 		WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
+		ORDER BY created_at ASC, id ASC
+		FOR UPDATE
 	`
-	if err := s.pool.QueryRow(ctx, countQuery, user.ID).Scan(&activeCount); err != nil {
-		return nil, fmt.Errorf("failed to check active device count: %w", err)
+	rows, err := tx.Query(ctx, activeSessionsQuery, user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query active sessions: %w", err)
 	}
 
-	if activeCount >= 2 {
-		s.logger.Warn("Session creation rejected: device limit reached", slog.String("user_id", user.ID.String()))
-		return nil, ErrSessionLimitReached
+	type activeSessionRow struct {
+		id        uuid.UUID
+		createdAt time.Time
+	}
+	var activeSessions []activeSessionRow
+	for rows.Next() {
+		var asr activeSessionRow
+		if err := rows.Scan(&asr.id, &asr.createdAt); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan active session: %w", err)
+		}
+		activeSessions = append(activeSessions, asr)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading active session rows: %w", err)
 	}
 
-	// 4. Create new session and tokens
+	// Enforce 2-device active session limit with FIFO replacement
+	const maxActiveSessions = 2
+	var revokedSessionIDs []uuid.UUID
+
+	if len(activeSessions) >= maxActiveSessions {
+		excess := len(activeSessions) - maxActiveSessions + 1
+		toRevoke := activeSessions[:excess]
+
+		for _, sess := range toRevoke {
+			revokeQuery := `UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1`
+			if _, err := tx.Exec(ctx, revokeQuery, sess.id); err != nil {
+				return nil, fmt.Errorf("failed to revoke oldest session %s: %w", sess.id, err)
+			}
+			revokedSessionIDs = append(revokedSessionIDs, sess.id)
+		}
+	}
+
+	// 4. Create new session and tokens inside the same transaction
 	refreshToken, err := GenerateRandomOpaqueToken(32)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
@@ -257,9 +316,26 @@ func (s *Service) VerifyOTP(ctx context.Context, rawPhone, candidateOTP, userAge
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id
 	`
-	err = s.pool.QueryRow(ctx, createSessionQuery, user.ID, refreshTokenHash, userAgent, clientIP, sessionExpiresAt).Scan(&sessionID)
+	err = tx.QueryRow(ctx, createSessionQuery, user.ID, refreshTokenHash, userAgent, clientIP, sessionExpiresAt).Scan(&sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user session: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit session transaction: %w", err)
+	}
+
+	sessionReplaced := len(revokedSessionIDs) > 0
+	if sessionReplaced {
+		for _, revID := range revokedSessionIDs {
+			s.logger.Info("FIFO session replacement performed",
+				slog.String("event_type", "fifo_session_replacement"),
+				slog.String("user_id", user.ID.String()),
+				slog.String("revoked_session_id", revID.String()),
+				slog.String("replacement_session_id", sessionID.String()),
+				slog.String("reason", "FIFO_SESSION_LIMIT"),
+			)
+		}
 	}
 
 	accessToken, err := s.tokenManager.GenerateAccessToken(user.ID, sessionID)
@@ -270,6 +346,7 @@ func (s *Service) VerifyOTP(ctx context.Context, rawPhone, candidateOTP, userAge
 	s.logger.Info("User session created successfully",
 		slog.String("user_id", user.ID.String()),
 		slog.String("session_id", sessionID.String()),
+		slog.Bool("session_replaced", sessionReplaced),
 	)
 
 	return &AuthResult{
@@ -283,6 +360,7 @@ func (s *Service) VerifyOTP(ctx context.Context, rawPhone, candidateOTP, userAge
 			CreatedAt: user.CreatedAt,
 			UpdatedAt: user.UpdatedAt,
 		},
+		SessionReplaced: sessionReplaced,
 	}, nil
 }
 
@@ -314,10 +392,10 @@ func (s *Service) RefreshToken(ctx context.Context, candidateRefreshToken, userA
 		return nil, fmt.Errorf("failed to look up session: %w", err)
 	}
 
-	// Replay / Reuse detection: if this token was already revoked, terminate the session
+	// Replay / Revocation check: if this session was revoked (by FIFO or logout), reject refresh
 	if revokedAt != nil {
-		s.logger.Warn("Suspected token reuse: revoked refresh token submitted", slog.String("session_id", sessionID.String()))
-		return nil, ErrRefreshTokenReused
+		s.logger.Warn("Session refresh rejected: session was revoked", slog.String("session_id", sessionID.String()))
+		return nil, ErrSessionRevoked
 	}
 
 	if time.Now().After(expiresAt) {
@@ -390,4 +468,44 @@ func (s *Service) GetUser(ctx context.Context, userID uuid.UUID) (*User, error) 
 
 	user.Phone = MaskPhone(user.Phone)
 	return &user, nil
+}
+
+// ValidateSession verifies that the session exists, belongs to userID, is not revoked, and is not expired.
+func (s *Service) ValidateSession(ctx context.Context, userID, sessionID uuid.UUID) error {
+	if s.pool == nil {
+		return errors.New("database pool unavailable")
+	}
+
+	var (
+		dbUserID  uuid.UUID
+		expiresAt time.Time
+		revokedAt *time.Time
+	)
+
+	query := `
+		SELECT user_id, expires_at, revoked_at
+		FROM user_sessions
+		WHERE id = $1
+	`
+	err := s.pool.QueryRow(ctx, query, sessionID).Scan(&dbUserID, &expiresAt, &revokedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrSessionNotFound
+		}
+		return fmt.Errorf("failed to query session status: %w", err)
+	}
+
+	if dbUserID != userID {
+		return ErrSessionMismatch
+	}
+
+	if revokedAt != nil {
+		return ErrSessionRevoked
+	}
+
+	if time.Now().After(expiresAt) {
+		return ErrSessionExpired
+	}
+
+	return nil
 }

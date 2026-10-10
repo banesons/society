@@ -17,16 +17,21 @@ frontend/
 ├── src/
 │   ├── lib/
 │   │   ├── api/
-│   │   │   └── client.ts      # Central HTTP client (headers, baseURL, error handling)
-│   │   └── components/
-│   │       └── ui/            # Reusable primitive UI components
+│   │   │   ├── client.ts          # Central HTTP client (headers, baseURL, error handling)
+│   │   │   └── platform.ts        # Platform administration API caller module
+│   │   ├── components/
+│   │   │   ├── admin/             # Platform admin components (roster, audit viewer, dialogs)
+│   │   │   ├── auth/              # Auth dialogs & session management (logout-all)
+│   │   │   └── ui/                # Reusable primitive UI components
+│   │   └── auth.svelte.ts         # Reactive Svelte 5 AuthStore & session handling
 │   └── routes/
-│       ├── +layout.svelte     # Root application shell & TanStack Query provider
-│       └── +page.svelte       # Initial system status / landing view
-├── .env.example               # Template environment configuration
+│       ├── +layout.svelte         # Root application shell & query provider
+│       ├── +page.svelte           # Public product landing page
+│       ├── login/+page.svelte     # Single authentication entry point (role-based redirect)
+│       ├── admin/+page.svelte     # Protected Super Admin console (roster, audit, sessions)
+│       ├── developer/+page.svelte # Developer diagnostics & API testing console
+│       └── unauthorized/+page.svelte # Access-denied / unassigned role view
 ├── package.json
-├── svelte.config.js
-├── tailwind.config.ts
 └── vite.config.ts
 ```
 
@@ -46,7 +51,20 @@ S00 creates only the foundational application shell:
 - No society dashboards, gatekeeper screens, or admin panels — deferred to future sprints.
 - Validates end-to-end communication with the Go backend via `/api/v1/health`.
 
+## Authentication & FIFO Session Management Flow
+
+1. **Authentication Flow (`/login`)**:
+   - Single mobile number OTP entry route.
+   - Guarded against duplicate submissions (`isSubmitting` flag).
+   - Automatically navigates post-login based on platform privileges (`SUPER_ADMIN` → `/admin`, others → `/unauthorized`).
+2. **Automatic FIFO Session Replacement UX**:
+   - Eliminates third-login rejection barriers (`SESSION_LIMIT_REACHED`).
+   - When the backend performs FIFO replacement (`session_replaced: true`), the frontend records `auth.sessionReplaced = true`.
+   - `+layout.svelte` renders an informational dismissible banner: *"Signed in successfully. Your oldest session was signed out to keep your account limited to two active devices."*
+   - Normal role-based routing proceeds without requiring manual user intervention or confirmation modals.
+
 ## Related Documentation
 - [[01-system-overview|System Overview]]
 - [[../api/01-api-overview|API Overview]]
 - [[../decisions/001-go-sveltekit-supabase|ADR 001: Core Stack]]
+- [[../decisions/011-two-device-limit|ADR 011: Two-Device Limit with Automatic FIFO Replacement]]

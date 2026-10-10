@@ -1,7 +1,6 @@
 package config
 
 import (
-	"log/slog"
 	"os"
 	"strings"
 
@@ -24,9 +23,11 @@ type Config struct {
 
 // Load reads configuration from environment variables, optionally reading .env if present.
 func Load() *Config {
-	// Attempt to load .env, ignore if absent
-	if err := godotenv.Load(); err != nil {
-		slog.Debug("no .env file found, using system environment variables")
+	// Attempt to load .env, searching upward if running inside a subpackage test
+	for _, envPath := range []string{".env", "../.env", "../../.env"} {
+		if err := godotenv.Load(envPath); err == nil {
+			break
+		}
 	}
 
 	port := getEnv("PORT", "8080")
