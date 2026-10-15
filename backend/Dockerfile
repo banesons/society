@@ -1,11 +1,6 @@
-FROM golang:1.26-alpine AS builder
-
-ENV GOTOOLCHAIN=auto
+FROM golang:1.26-bookworm AS builder
 
 WORKDIR /app
-
-# Install CA certificates for secure HTTPS connections (Supabase, Firebase, MSG91)
-RUN apk add --no-cache ca-certificates tzdata
 
 # Cache Go modules layer
 COPY go.mod go.sum ./
