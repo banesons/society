@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"net"
 	"sync"
 	"time"
 )
@@ -15,12 +16,17 @@ var (
 
 	// ErrIPRateLimited is returned when an IP exceeds 10 requests per hour.
 	ErrIPRateLimited = errors.New("too many requests from this network, please try again later")
+
+	// ErrVerifyIPRateLimited is returned when an IP exceeds failed verification attempts.
+	ErrVerifyIPRateLimited = errors.New("too many failed verification attempts from this network, please try again later")
 )
 
 const (
 	MaxPhoneRequestsPerHour = 5
 	MaxIPRequestsPerHour    = 10
 	PhoneCooldownSeconds    = 60
+	MaxIPVerifyFailures     = 20
+	VerifyFailureWindow     = 10 * time.Minute
 )
 
 type phoneRecord struct {
@@ -32,18 +38,24 @@ type ipRecord struct {
 	requestTimes []time.Time
 }
 
+type verifyRecord struct {
+	failureTimes []time.Time
+}
+
 // RateLimiter tracks OTP request frequency across phone numbers and source IPs.
 type RateLimiter struct {
-	mu     sync.Mutex
-	phones map[string]*phoneRecord
-	ips    map[string]*ipRecord
+	mu             sync.Mutex
+	phones         map[string]*phoneRecord
+	ips            map[string]*ipRecord
+	verifyFailures map[string]*verifyRecord
 }
 
 // NewRateLimiter creates an in-memory rate limiter.
 func NewRateLimiter() *RateLimiter {
 	return &RateLimiter{
-		phones: make(map[string]*phoneRecord),
-		ips:    make(map[string]*ipRecord),
+		phones:         make(map[string]*phoneRecord),
+		ips:            make(map[string]*ipRecord),
+		verifyFailures: make(map[string]*verifyRecord),
 	}
 }
 
@@ -99,6 +111,12 @@ func (rl *RateLimiter) CheckAndRecordIP(ip string) error {
 	if ip == "" {
 		return nil
 	}
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	if ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
+		return nil
+	}
 
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -129,4 +147,92 @@ func (rl *RateLimiter) CheckAndRecordIP(ip string) error {
 
 	rec.requestTimes = append(rec.requestTimes, now)
 	return nil
+}
+
+// CheckVerifyIP checks whether the client IP has exceeded the allowed failed verification attempts.
+func (rl *RateLimiter) CheckVerifyIP(ip string) error {
+	if ip == "" {
+		return nil
+	}
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	if ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
+		return nil
+	}
+
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	rec, exists := rl.verifyFailures[ip]
+	if !exists {
+		return nil
+	}
+
+	now := time.Now()
+	cutoff := now.Add(-VerifyFailureWindow)
+	validTimes := rec.failureTimes[:0]
+	for _, t := range rec.failureTimes {
+		if t.After(cutoff) {
+			validTimes = append(validTimes, t)
+		}
+	}
+	rec.failureTimes = validTimes
+
+	if len(rec.failureTimes) >= MaxIPVerifyFailures {
+		return ErrVerifyIPRateLimited
+	}
+	return nil
+}
+
+// RecordVerifyFailureIP records a failed verification attempt for the given client IP.
+func (rl *RateLimiter) RecordVerifyFailureIP(ip string) {
+	if ip == "" {
+		return
+	}
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	if ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
+		return
+	}
+
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	rec, exists := rl.verifyFailures[ip]
+	if !exists {
+		rec = &verifyRecord{
+			failureTimes: []time.Time{},
+		}
+		rl.verifyFailures[ip] = rec
+	}
+
+	now := time.Now()
+	cutoff := now.Add(-VerifyFailureWindow)
+	validTimes := rec.failureTimes[:0]
+	for _, t := range rec.failureTimes {
+		if t.After(cutoff) {
+			validTimes = append(validTimes, t)
+		}
+	}
+	rec.failureTimes = append(validTimes, now)
+}
+
+// ResetVerifyIP resets failure records for a client IP upon successful verification.
+func (rl *RateLimiter) ResetVerifyIP(ip string) {
+	if ip == "" {
+		return
+	}
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	if ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
+		return
+	}
+
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	delete(rl.verifyFailures, ip)
 }

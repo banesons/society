@@ -64,6 +64,16 @@ func TestHealthEndpoint(t *testing.T) {
 	if dbMap["connected"] != false {
 		t.Errorf("expected connected=false when nil DB provided, got %v", dbMap["connected"])
 	}
+
+	// Verify root /health and /healthz probes
+	for _, path := range []string{"/health", "/healthz"} {
+		rootReq := httptest.NewRequest(http.MethodGet, path, nil)
+		rootRec := httptest.NewRecorder()
+		router.ServeHTTP(rootRec, rootReq)
+		if rootRec.Code != http.StatusOK {
+			t.Errorf("expected 200 for %s, got %d", path, rootRec.Code)
+		}
+	}
 }
 
 func TestNotFoundEndpoint(t *testing.T) {

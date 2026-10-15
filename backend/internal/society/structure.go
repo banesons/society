@@ -113,6 +113,8 @@ type Gate struct {
 	GateCode              string    `json:"gate_code"`
 	GateType              string    `json:"gate_type"`
 	Status                string    `json:"status"`
+	Directionality        string    `json:"directionality"`
+	OperationalStatus     string    `json:"operational_status"`
 	RequiredStaffPerShift int       `json:"required_staff_per_shift"`
 	Description           *string   `json:"description,omitempty"`
 	CreatedAt             time.Time `json:"created_at"`
@@ -644,13 +646,13 @@ func (r *Repository) CreateGate(ctx context.Context, societyID uuid.UUID, params
 	defer tx.Rollback(ctx)
 
 	query := `
-		INSERT INTO society_gates (society_id, name, gate_code, gate_type, status, required_staff_per_shift, description)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, society_id, name, gate_code, gate_type, status, required_staff_per_shift, description, created_at, updated_at
+		INSERT INTO society_gates (society_id, name, gate_code, gate_type, status, directionality, operational_status, required_staff_per_shift, description)
+		VALUES ($1, $2, $3, $4, $5, 'BIDIRECTIONAL', 'ACTIVE', $6, $7)
+		RETURNING id, society_id, name, gate_code, gate_type, status, directionality, operational_status, required_staff_per_shift, description, created_at, updated_at
 	`
 	g := &Gate{}
 	err = tx.QueryRow(ctx, query, societyID, name, code, gateType, status, params.RequiredStaffPerShift, params.Description).Scan(
-		&g.ID, &g.SocietyID, &g.Name, &g.GateCode, &g.GateType, &g.Status, &g.RequiredStaffPerShift, &g.Description, &g.CreatedAt, &g.UpdatedAt,
+		&g.ID, &g.SocietyID, &g.Name, &g.GateCode, &g.GateType, &g.Status, &g.Directionality, &g.OperationalStatus, &g.RequiredStaffPerShift, &g.Description, &g.CreatedAt, &g.UpdatedAt,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -669,6 +671,8 @@ func (r *Repository) CreateGate(ctx context.Context, societyID uuid.UUID, params
 		"name":                     g.Name,
 		"gate_code":                g.GateCode,
 		"gate_type":                g.GateType,
+		"directionality":           g.Directionality,
+		"operational_status":       g.OperationalStatus,
 		"required_staff_per_shift": g.RequiredStaffPerShift,
 	}
 	detailsJSON, _ := json.Marshal(details)
@@ -695,7 +699,7 @@ func (r *Repository) ListGates(ctx context.Context, societyID uuid.UUID) ([]Gate
 	}
 
 	query := `
-		SELECT id, society_id, name, gate_code, gate_type, status, required_staff_per_shift, description, created_at, updated_at
+		SELECT id, society_id, name, gate_code, gate_type, status, directionality, operational_status, required_staff_per_shift, description, created_at, updated_at
 		FROM society_gates
 		WHERE society_id = $1
 		ORDER BY gate_code ASC
@@ -711,6 +715,7 @@ func (r *Repository) ListGates(ctx context.Context, societyID uuid.UUID) ([]Gate
 		var g Gate
 		err := rows.Scan(
 			&g.ID, &g.SocietyID, &g.Name, &g.GateCode, &g.GateType, &g.Status,
+			&g.Directionality, &g.OperationalStatus,
 			&g.RequiredStaffPerShift, &g.Description, &g.CreatedAt, &g.UpdatedAt,
 		)
 		if err != nil {

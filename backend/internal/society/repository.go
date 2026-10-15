@@ -20,7 +20,9 @@ var pincodeRegex = regexp.MustCompile(`^[1-9][0-9]{5}$`)
 
 // Repository manages database persistence and lifecycle operations for housing societies.
 type Repository struct {
-	pool *pgxpool.Pool
+	pool           *pgxpool.Pool
+	storageBaseURL string
+	storageAnonKey string
 }
 
 // NewRepository creates a new Society repository instance.
@@ -188,6 +190,25 @@ func (r *Repository) CreateSociety(ctx context.Context, rawParams CreateSocietyP
 		if err != nil {
 			tx.Rollback(ctx)
 			return nil, fmt.Errorf("failed to record audit log: %w", err)
+		}
+
+		// Seed default system document categories for the new society
+		seedCatQuery := `
+			INSERT INTO document_categories (society_id, name, description, is_system, display_order)
+			VALUES 
+			($1, 'Registration and Legal', 'Society registration certificates, legal deeds, and property documents', true, 1),
+			($1, 'Bylaws and Rules', 'Society bylaws, house rules, and community guidelines', true, 2),
+			($1, 'Meetings and Minutes', 'Minutes of Annual General Meetings, SGMs, and Managing Committee meetings', true, 3),
+			($1, 'Financial Records', 'Audited balance sheets, financial statements, and tax filings', true, 4),
+			($1, 'Safety and Compliance', 'Fire-safety compliance certificates, structural audit reports, and NOCs', true, 5),
+			($1, 'Maintenance and Repairs', 'Major repair contracts, lift maintenance logs, and AMC records', true, 6),
+			($1, 'Insurance', 'Building and public liability insurance policies', true, 7),
+			($1, 'General Records', 'General society circulars, correspondence, and notices', true, 8)
+			ON CONFLICT (society_id, name) DO NOTHING
+		`
+		if _, err := tx.Exec(ctx, seedCatQuery, soc.ID); err != nil {
+			tx.Rollback(ctx)
+			return nil, fmt.Errorf("failed to seed document categories: %w", err)
 		}
 
 		if err := tx.Commit(ctx); err != nil {
@@ -1125,11 +1146,26 @@ func (r *Repository) ListUserSocietyAssignments(ctx context.Context, userID uuid
 	}
 
 	query := `
-		SELECT s.id, s.society_code, s.name, sur.role, sur.status
-		FROM society_user_roles sur
-		JOIN societies s ON sur.society_id = s.id
-		WHERE sur.user_id = $1 AND sur.status = 'ACTIVE'
-		ORDER BY s.name ASC
+		WITH role_assignments AS (
+			SELECT s.id, s.society_code, s.name, sur.role, sur.status, s.city, s.state
+			FROM society_user_roles sur
+			JOIN societies s ON sur.society_id = s.id
+			WHERE sur.user_id = $1 AND sur.status = 'ACTIVE' AND s.status = 'ACTIVE'
+		),
+		member_assignments AS (
+			SELECT s.id, s.society_code, s.name, 'RESIDENT' AS role, sm.status, s.city, s.state
+			FROM society_members sm
+			JOIN societies s ON sm.society_id = s.id
+			WHERE sm.user_id = $1 AND sm.status = 'ACTIVE' AND s.status = 'ACTIVE'
+			  AND s.id NOT IN (SELECT id FROM role_assignments)
+		)
+		SELECT id, society_code, name, role, status, city, state
+		FROM (
+			SELECT * FROM role_assignments
+			UNION ALL
+			SELECT * FROM member_assignments
+		) combined
+		ORDER BY name ASC
 	`
 	rows, err := r.pool.Query(ctx, query, userID)
 	if err != nil {
@@ -1140,7 +1176,7 @@ func (r *Repository) ListUserSocietyAssignments(ctx context.Context, userID uuid
 	items := make([]UserSocietyAssignment, 0)
 	for rows.Next() {
 		var a UserSocietyAssignment
-		if err := rows.Scan(&a.SocietyID, &a.SocietyCode, &a.SocietyName, &a.Role, &a.Status); err != nil {
+		if err := rows.Scan(&a.SocietyID, &a.SocietyCode, &a.SocietyName, &a.Role, &a.Status, &a.City, &a.State); err != nil {
 			return nil, fmt.Errorf("failed to scan user society assignment: %w", err)
 		}
 		items = append(items, a)
@@ -1212,4 +1248,97 @@ func (r *Repository) VerifySocietyAdminAccess(ctx context.Context, societyID, us
 	}
 
 	return soc, assignment, nil
+}
+
+// VerifySocietyRolesAccess validates that target society exists, is ACTIVE, and the user has an ACTIVE assignment for ANY of the allowed roles.
+func (r *Repository) VerifySocietyRolesAccess(ctx context.Context, societyID, userID uuid.UUID, allowedRoles ...string) (*Society, *SocietyAdminAssignment, error) {
+	if r.pool == nil {
+		return nil, nil, errors.New("database pool unavailable")
+	}
+
+	soc, err := r.GetSocietyByID(ctx, societyID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if soc.Status == StatusPending {
+		return nil, nil, ErrSocietyPending
+	}
+	if soc.Status == StatusSuspended {
+		return nil, nil, ErrSocietySuspended
+	}
+	if soc.Status != StatusActive {
+		return nil, nil, ErrSocietyAccessDenied
+	}
+
+	assignQuery := `
+		SELECT id, society_id, user_id, role, status, assigned_by, revoked_by, revoked_at, created_at, updated_at
+		FROM society_user_roles
+		WHERE society_id = $1 AND user_id = $2 AND role = ANY($3) AND status = 'ACTIVE'
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	assignment := &SocietyAdminAssignment{}
+	err = r.pool.QueryRow(ctx, assignQuery, societyID, userID, allowedRoles).Scan(
+		&assignment.ID, &assignment.SocietyID, &assignment.UserID,
+		&assignment.Role, &assignment.Status, &assignment.AssignedBy,
+		&assignment.RevokedBy, &assignment.RevokedAt,
+		&assignment.CreatedAt, &assignment.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, ErrSocietyAccessDenied
+		}
+		return nil, nil, fmt.Errorf("failed to query society user role: %w", err)
+	}
+
+	return soc, assignment, nil
+}
+
+// VerifyActiveSocietyMembership validates that the user is either assigned an active society role OR is an active linked member.
+func (r *Repository) VerifyActiveSocietyMembership(ctx context.Context, societyID, userID uuid.UUID) (*Society, string, error) {
+	if r.pool == nil {
+		return nil, "", errors.New("database pool unavailable")
+	}
+
+	soc, err := r.GetSocietyByID(ctx, societyID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if soc.Status == StatusPending {
+		return nil, "", ErrSocietyPending
+	}
+	if soc.Status == StatusSuspended {
+		return nil, "", ErrSocietySuspended
+	}
+	if soc.Status != StatusActive {
+		return nil, "", ErrSocietyAccessDenied
+	}
+
+	// 1. Check society_user_roles (SOC_ADMIN, GATEKEEPER)
+	var role string
+	err = r.pool.QueryRow(ctx, `
+		SELECT role FROM society_user_roles
+		WHERE society_id = $1 AND user_id = $2 AND status = 'ACTIVE'
+		ORDER BY CASE WHEN role = 'SOC_ADMIN' THEN 1 ELSE 2 END
+		LIMIT 1
+	`, societyID, userID).Scan(&role)
+	if err == nil {
+		return soc, role, nil
+	}
+
+	// 2. Check society_members (RESIDENT)
+	var isMember bool
+	err = r.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM society_members
+			WHERE society_id = $1 AND user_id = $2 AND status = 'ACTIVE'
+		)
+	`, societyID, userID).Scan(&isMember)
+	if err == nil && isMember {
+		return soc, "RESIDENT", nil
+	}
+
+	return nil, "", ErrSocietyAccessDenied
 }

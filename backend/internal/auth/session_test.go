@@ -54,7 +54,7 @@ func setupTestAuthService(t *testing.T, pool *pgxpool.Pool) (*Service, *sms.Mock
 		smsProvider,
 		rateLimiter,
 		ServiceConfig{
-			DevTestPhones: []string{"+919967089101", "+918422862001"},
+			DevTestPhones: []string{"919967089101", "918422862001"},
 			DevTestOTP:    "123456",
 		},
 		logger,
@@ -66,8 +66,9 @@ func setupTestAuthService(t *testing.T, pool *pgxpool.Pool) (*Service, *sms.Mock
 func cleanupUser(t *testing.T, pool *pgxpool.Pool, phone string) {
 	t.Helper()
 	ctx := context.Background()
-	_, _ = pool.Exec(ctx, `DELETE FROM auth_otps WHERE phone = $1`, phone)
-	_, _ = pool.Exec(ctx, `DELETE FROM users WHERE phone = $1`, phone)
+	norm, _ := NormalizePhone(phone)
+	_, _ = pool.Exec(ctx, `DELETE FROM auth_otps WHERE phone = $1 OR phone = $2`, phone, norm)
+	_, _ = pool.Exec(ctx, `DELETE FROM users WHERE phone = $1 OR phone = $2`, phone, norm)
 }
 
 func countActiveSessions(t *testing.T, pool *pgxpool.Pool, userID uuid.UUID) int {
@@ -90,21 +91,25 @@ func sendAndVerifyOTP(t *testing.T, svc *Service, pool *pgxpool.Pool, phone, use
 	t.Helper()
 	ctx := context.Background()
 
+	norm, err := NormalizePhone(phone)
+	if err != nil {
+		norm = phone
+	}
 	otpCode := "123456"
-	otpHash := HashOTP(phone, otpCode)
+	otpHash := HashOTP(norm, otpCode)
 	expiresAt := time.Now().Add(5 * time.Minute)
 
-	_, err := pool.Exec(ctx, `
+	_, err = pool.Exec(ctx, `
 		INSERT INTO auth_otps (phone, otp_hash, attempts, expires_at)
 		VALUES ($1, $2, 0, $3)
-	`, phone, otpHash, expiresAt)
+	`, norm, otpHash, expiresAt)
 	if err != nil {
-		t.Fatalf("failed to seed OTP for %s: %v", phone, err)
+		t.Fatalf("failed to seed OTP for %s: %v", norm, err)
 	}
 
-	res, err := svc.VerifyOTP(ctx, phone, otpCode, userAgent, ip)
+	res, err := svc.VerifyOTP(ctx, norm, otpCode, userAgent, ip)
 	if err != nil {
-		t.Fatalf("failed to verify OTP for %s: %v", phone, err)
+		t.Fatalf("failed to verify OTP for %s: %v", norm, err)
 	}
 	return res
 }
@@ -116,7 +121,7 @@ func TestFIFOSessionReplacement(t *testing.T) {
 
 	// A, B, C: Zero sessions, One session, Two sessions -> FIFO replacement
 	t.Run("A_B_C: Zero, One, and Two sessions FIFO replacement lifecycle", func(t *testing.T) {
-		phone := "+919876543001"
+		phone := "919876543001"
 		cleanupUser(t, pool, phone)
 		defer cleanupUser(t, pool, phone)
 
@@ -173,7 +178,7 @@ func TestFIFOSessionReplacement(t *testing.T) {
 
 	// D: Legacy state with 3 or more active sessions safely restored to max 2
 	t.Run("D: Legacy state with 3 active sessions restores to limit safely", func(t *testing.T) {
-		phone := "+919876543002"
+		phone := "919876543002"
 		cleanupUser(t, pool, phone)
 		defer cleanupUser(t, pool, phone)
 
@@ -232,7 +237,7 @@ func TestFIFOSessionReplacement(t *testing.T) {
 
 	// E: Deterministic ordering with identical created_at uses id ASC tie-breaker
 	t.Run("E: Deterministic ordering uses id ASC tie-breaker", func(t *testing.T) {
-		phone := "+919876543003"
+		phone := "919876543003"
 		cleanupUser(t, pool, phone)
 		defer cleanupUser(t, pool, phone)
 
@@ -279,7 +284,7 @@ func TestFIFOSessionReplacement(t *testing.T) {
 
 	// F: Transaction rollback: simulated failure does not leave old session revoked
 	t.Run("F: Transaction rollback preserves existing sessions", func(t *testing.T) {
-		phone := "+919876543004"
+		phone := "919876543004"
 		cleanupUser(t, pool, phone)
 		defer cleanupUser(t, pool, phone)
 
@@ -313,7 +318,7 @@ func TestFIFOSessionReplacement(t *testing.T) {
 
 	// G: Concurrency: simultaneous logins for the same user never exceed 2 active sessions
 	t.Run("G: Concurrent logins strictly adhere to 2-session maximum", func(t *testing.T) {
-		phone := "+919876543005"
+		phone := "919876543005"
 		cleanupUser(t, pool, phone)
 		defer cleanupUser(t, pool, phone)
 
@@ -368,8 +373,8 @@ func TestFIFOSessionReplacement(t *testing.T) {
 
 	// H: User isolation: login for User A never revokes User B's sessions
 	t.Run("H: User isolation across session management", func(t *testing.T) {
-		phoneA := "+919876543006"
-		phoneB := "+919876543007"
+		phoneA := "919876543006"
+		phoneB := "919876543007"
 		cleanupUser(t, pool, phoneA)
 		cleanupUser(t, pool, phoneB)
 		defer cleanupUser(t, pool, phoneA)
@@ -414,11 +419,11 @@ func TestFIFOSessionReplacement(t *testing.T) {
 
 	// I: OTP semantics: Invalid, Expired, and Consumed OTPs rejected
 	t.Run("I: OTP verification failure semantics", func(t *testing.T) {
-		phone := "+919876543008"
+		phone := "919876543008"
 		cleanupUser(t, pool, phone)
 		defer cleanupUser(t, pool, phone)
 
-		_, err := svc.SendOTP(ctx, phone, "127.0.0.1")
+		_, _, err := svc.SendOTP(ctx, phone, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("failed to send OTP: %v", err)
 		}
@@ -462,7 +467,7 @@ func TestFIFOSessionReplacement(t *testing.T) {
 
 	// J: Logout and refresh: revoked sessions cannot refresh, logout-all works
 	t.Run("J: Refresh and logout semantics on revoked sessions", func(t *testing.T) {
-		phone := "+919876543009"
+		phone := "919876543009"
 		cleanupUser(t, pool, phone)
 		defer cleanupUser(t, pool, phone)
 
@@ -505,7 +510,7 @@ func TestFIFOSessionReplacement(t *testing.T) {
 
 	// K: Access JWT revocation hardening: FIFO evicted, logged out, and logout-all sessions rejected immediately
 	t.Run("K: Hardened session revocation rejects existing access JWTs immediately", func(t *testing.T) {
-		phone := "+919876543010"
+		phone := "919876543010"
 		cleanupUser(t, pool, phone)
 		defer cleanupUser(t, pool, phone)
 

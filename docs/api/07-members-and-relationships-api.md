@@ -28,7 +28,7 @@ All endpoints require authentication and are guarded by the society access middl
       "user_id": "99999999-9999-9999-9999-999999999999",
       "first_name": "Ramesh",
       "last_name": "Sharma",
-      "phone": "+91 98200xxxx1",
+      "phone": "919820098201",
       "email": "ra****@example.com",
       "status": "ACTIVE",
       "is_registered_user": true,
@@ -50,14 +50,14 @@ All endpoints require authentication and are guarded by the society access middl
 {
   "first_name": "Ramesh",
   "last_name": "Sharma",
-  "phone": "+919820098200",
+  "phone": "919820098200",
   "email": "ramesh@example.com",
   "emergency_contact_name": "Sita Sharma",
-  "emergency_contact_phone": "+919820098201"
+  "emergency_contact_phone": "919820098201"
 }
 ```
 - **Validation**:
-  - `phone` is normalized to E.164. Duplicate active phone returns `409 MEMBER_ALREADY_EXISTS`.
+  - `phone` and `emergency_contact_phone` are validated and normalized to pure numeric 12-digit integers (`91[6-9]\d{9}`). Non-digit characters and spaces are stripped on both FE and BE. Duplicate active phone returns `409 MEMBER_ALREADY_EXISTS`.
   - If a verified user exists with that phone and is not yet linked to another member in this society, `user_id` is linked.
 - **Response**: `201 Created`
 
@@ -73,7 +73,7 @@ All endpoints require authentication and are guarded by the society access middl
     "user_id": "99999999-9999-9999-9999-999999999999",
     "first_name": "Ramesh",
     "last_name": "Sharma",
-    "phone": "+919820098200",
+    "phone": "919820098200",
     "email": "ramesh@example.com",
     "status": "ACTIVE",
     "relationships": [
@@ -150,17 +150,34 @@ All endpoints require authentication and are guarded by the society access middl
 ```json
 {
   "expected_version_hash": "a1b2c3d4e5f6...7890",
-  "reason": "Relocated out of society",
+  "reason_code": "TENANT_MOVED_OUT",
+  "reason_details": "Contract concluded; deposit returned.",
   "end_date": "2026-10-15"
 }
 ```
-- **Validation**:
+- **Validation Rules**:
+  - `reason_code` is required and must be one of:
+    - `TENANT_MOVED_OUT` (Tenant Moved Out)
+    - `LEASE_EXPIRED` (Lease Expired)
+    - `OWNERSHIP_TRANSFERRED` (Ownership Transferred)
+    - `MEMBER_RELOCATED` (Member Relocated)
+    - `FAMILY_MEMBER_DEPARTED` (Family Member Departed)
+    - `MEMBERSHIP_TERMINATED` (Membership Terminated)
+    - `DECEASED` (Deceased)
+    - `OTHER` (Other)
+  - When `reason_code` is `OTHER`, `reason_details` is mandatory and must not be empty or whitespace-only.
+  - `reason_details` must not exceed 500 characters.
   - Compares `expected_version_hash` against live state. If stale, returns `409 PREVIEW_STALE`.
   - Transitions confirmed non-ownership occupancies to `status = 'ENDED'`, `end_date = end_date`.
   - Preserves ownership records and sets `is_occupant = false` if resident.
-  - Updates member status to `LEFT`.
+  - Updates member status to `LEFT`, persisting `departure_reason_code`, `departure_reason_details`, and `departed_at`.
   - Runs in a single atomic transaction with audit logging.
 - **Response**: `200 OK`
+```json
+{
+  "message": "Member departed successfully; occupancies ended and ownerships preserved"
+}
+```
 
 ### 2.7 List Unit Relationships
 - **Method**: `GET`
@@ -258,6 +275,9 @@ All endpoints require authentication and are guarded by the society access middl
 | `400` | `INVALID_PHONE` | Phone is not a valid E.164 number |
 | `400` | `INVALID_DATES` | End date is before start date |
 | `400` | `INVALID_OWNERSHIP_SHARE` | Share entered for non-owner or total exceeds 100.00% |
+| `400` | `INVALID_DEPARTURE_REASON` | Missing or invalid departure reason code |
+| `400` | `REASON_DETAILS_REQUIRED` | Reason details are required when reason code is OTHER |
+| `400` | `REASON_DETAILS_TOO_LONG` | Reason details exceed maximum allowed length (500 chars) |
 | `403` | `SOCIETY_ACCESS_DENIED` | Caller lacks `SOC_ADMIN` or `SUPER_ADMIN` authorization |
 | `403` | `SOCIETY_SUSPENDED` | Target society is suspended |
 | `404` | `MEMBER_NOT_FOUND` | Member ID does not exist in target society |

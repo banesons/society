@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"chs/backend/internal/auth"
+	"chs/backend/internal/config"
 	"chs/backend/internal/middleware"
 	"chs/backend/internal/platform"
 	"chs/backend/internal/response"
@@ -26,7 +27,7 @@ type RefreshTokenRequest struct {
 }
 
 // SendOTPHandler handles POST /api/v1/auth/otp/send.
-func SendOTPHandler(svc *auth.Service) http.HandlerFunc {
+func SendOTPHandler(svc *auth.Service, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		reqID := middleware.GetRequestID(r.Context())
 
@@ -37,7 +38,7 @@ func SendOTPHandler(svc *auth.Service) http.HandlerFunc {
 		}
 
 		clientIP := r.RemoteAddr
-		resendAfter, err := svc.SendOTP(r.Context(), req.Phone, clientIP)
+		resendAfter, otpCode, err := svc.SendOTP(r.Context(), req.Phone, clientIP)
 		if err != nil {
 			switch {
 			case errors.Is(err, auth.ErrInvalidPhone):
@@ -52,14 +53,19 @@ func SendOTPHandler(svc *auth.Service) http.HandlerFunc {
 			return
 		}
 
-		response.Success(w, http.StatusOK, map[string]interface{}{
+		data := map[string]interface{}{
 			"resend_after_seconds": resendAfter,
-		}, nil)
+		}
+		if cfg != nil && cfg.Env != "production" {
+			data["otp"] = otpCode
+		}
+
+		response.Success(w, http.StatusOK, data, nil)
 	}
 }
 
 // VerifyOTPHandler handles POST /api/v1/auth/otp/verify.
-func VerifyOTPHandler(svc *auth.Service, platformRepo *platform.Repository) http.HandlerFunc {
+func VerifyOTPHandler(svc *auth.Service, platformRepo *platform.Repository, societyRepo *society.Repository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		reqID := middleware.GetRequestID(r.Context())
 
@@ -88,6 +94,8 @@ func VerifyOTPHandler(svc *auth.Service, platformRepo *platform.Repository) http
 				response.Error(w, http.StatusGone, "OTP_EXPIRED", "Verification code has expired", reqID)
 			case errors.Is(err, auth.ErrOTPAttemptsExceeded):
 				response.Error(w, http.StatusTooManyRequests, "OTP_ATTEMPTS_EXCEEDED", "Maximum verification attempts exceeded", reqID)
+			case errors.Is(err, auth.ErrVerifyIPRateLimited):
+				response.Error(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many failed verification attempts, please try again later", reqID)
 			case errors.Is(err, auth.ErrSessionLimitReached):
 				response.Error(w, http.StatusConflict, "SESSION_LIMIT_REACHED", "Maximum 2 active devices reached. Please log out from another device.", reqID)
 			default:
@@ -100,6 +108,11 @@ func VerifyOTPHandler(svc *auth.Service, platformRepo *platform.Repository) http
 			if roles, err := platformRepo.GetUserPlatformRoles(r.Context(), result.User.ID); err == nil && roles != nil {
 				result.User.PlatformRoles = roles
 			}
+		}
+
+		// Safe, concurrency-aware identity linking for pre-registered member records
+		if societyRepo != nil {
+			_ = societyRepo.SafeLinkUserMembers(r.Context(), result.User.ID, result.User.Phone)
 		}
 
 		response.Success(w, http.StatusOK, result, nil)

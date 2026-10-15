@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -59,7 +60,7 @@ func TestPlatformAPI(t *testing.T) {
 	platformRepo := platform.NewRepository(db.Pool())
 
 	// 1. Bootstrap Super Admin
-	superAdminPhone := "+919967089101"
+	superAdminPhone := "919967089101"
 	superAdminRole, err := platformRepo.BootstrapSuperAdmin(ctx, superAdminPhone)
 	if err != nil {
 		t.Fatalf("super admin bootstrap failed: %v", err)
@@ -123,7 +124,7 @@ func TestPlatformAPI(t *testing.T) {
 
 	// 2. Ordinary authenticated user without platform role returns 403
 	var ordinaryUserID uuid.UUID
-	err = db.Pool().QueryRow(ctx, "INSERT INTO users (phone, status) VALUES ('+919999000001', 'ACTIVE') ON CONFLICT (phone) DO UPDATE SET status = 'ACTIVE' RETURNING id").Scan(&ordinaryUserID)
+	err = db.Pool().QueryRow(ctx, "INSERT INTO users (phone, status) VALUES ('919999000001', 'ACTIVE') ON CONFLICT (phone) DO UPDATE SET status = 'ACTIVE' RETURNING id").Scan(&ordinaryUserID)
 	if err != nil {
 		t.Fatalf("failed to create ordinary user: %v", err)
 	}
@@ -156,7 +157,7 @@ func TestPlatformAPI(t *testing.T) {
 	})
 
 	// 4. Create new platform ADMIN and verify duplicate conflict
-	adminTestPhone := fmt.Sprintf("+919820%06d", time.Now().UnixNano()%1000000)
+	adminTestPhone := fmt.Sprintf("917%09d", (time.Now().UnixNano()^int64(os.Getpid()))%1000000000)
 	var createdAdminRoleID string
 	var createdAdminUserID string
 

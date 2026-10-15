@@ -93,14 +93,14 @@ func TestSocietyAdminAPI(t *testing.T) {
 	}
 
 	// Create test users
-	targetUserPhone1 := "+919820555001"
+	targetUserPhone1 := "919820555001"
 	_, targetUserToken1 := createTestUser(targetUserPhone1)
 
-	targetUserPhone2 := "+919820555002"
+	targetUserPhone2 := "919820555002"
 	targetUserID2, targetUserToken2 := createTestUser(targetUserPhone2)
 
 	// Platform ADMIN (not super admin)
-	platformAdminPhone := "+919820555003"
+	platformAdminPhone := "919820555003"
 	platformAdminID, platformAdminToken := createTestUser(platformAdminPhone)
 	_, _ = db.Pool().Exec(ctx, `
 		INSERT INTO platform_roles (user_id, role, status, assigned_by)
@@ -271,7 +271,7 @@ func TestSocietyAdminAPI(t *testing.T) {
 
 		// 1. Unknown phone -> 404 USER_NOT_FOUND
 		bodyUnknown, _ := json.Marshal(map[string]interface{}{
-			"phone": "+919999999999",
+			"phone": "919999999999",
 			"role":  "SOC_ADMIN",
 		})
 		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/platform/societies/%s/admins", soc.ID), bytes.NewReader(bodyUnknown))

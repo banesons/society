@@ -94,21 +94,16 @@ func NewService(
 }
 
 // SendOTP normalizes the phone number, checks rate limits, generates/stores the OTP, and dispatches SMS.
-func (s *Service) SendOTP(ctx context.Context, rawPhone, clientIP string) (int, error) {
+// In development mode, the generated OTP code is returned for testing inspection.
+func (s *Service) SendOTP(ctx context.Context, rawPhone, clientIP string) (int, string, error) {
 	phone, err := NormalizePhone(rawPhone)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 
 	// Rate limiting by IP
 	if err := s.rateLimiter.CheckAndRecordIP(clientIP); err != nil {
-		return 0, err
-	}
-
-	// Rate limiting by phone (cooldown & hourly cap)
-	resendAfter, err := s.rateLimiter.CheckAndRecordPhone(phone)
-	if err != nil {
-		return resendAfter, err
+		return 0, "", err
 	}
 
 	// Determine OTP code: check test numbers in dev
@@ -121,13 +116,19 @@ func (s *Service) SendOTP(ctx context.Context, rawPhone, clientIP string) (int, 
 		}
 	}
 
+	// Rate limiting by phone (cooldown & hourly cap)
+	resendAfter, err := s.rateLimiter.CheckAndRecordPhone(phone)
+	if err != nil {
+		return resendAfter, "", err
+	}
+
 	if isTestNumber && s.config.DevTestOTP != "" {
 		otpCode = s.config.DevTestOTP
 		s.logger.Info("Using configured development test OTP", slog.String("phone", MaskPhone(phone)))
 	} else {
 		generated, err := GenerateNumericOTP()
 		if err != nil {
-			return 0, fmt.Errorf("failed to generate secure OTP: %w", err)
+			return 0, "", fmt.Errorf("failed to generate secure OTP: %w", err)
 		}
 		otpCode = generated
 	}
@@ -142,18 +143,18 @@ func (s *Service) SendOTP(ctx context.Context, rawPhone, clientIP string) (int, 
 			VALUES ($1, $2, 0, $3)
 		`
 		if _, err := s.pool.Exec(ctx, query, phone, otpHash, expiresAt); err != nil {
-			return 0, fmt.Errorf("failed to record OTP: %w", err)
+			return 0, "", fmt.Errorf("failed to record OTP: %w", err)
 		}
 	}
 
 	// Dispatch SMS
 	if err := s.smsProvider.SendOTP(ctx, phone, otpCode); err != nil {
 		s.logger.Error("SMS dispatch failed", slog.String("phone", MaskPhone(phone)), slog.String("error", err.Error()))
-		return 0, fmt.Errorf("failed to deliver verification SMS")
+		return 0, "", fmt.Errorf("failed to deliver verification SMS")
 	}
 
 	s.logger.Info("OTP generated and dispatched", slog.String("phone", MaskPhone(phone)))
-	return resendAfter, nil
+	return resendAfter, otpCode, nil
 }
 
 // VerifyOTP verifies candidate code, provisions user (JIT), checks 2-device limit, and issues tokens.
@@ -161,6 +162,12 @@ func (s *Service) VerifyOTP(ctx context.Context, rawPhone, candidateOTP, userAge
 	phone, err := NormalizePhone(rawPhone)
 	if err != nil {
 		return nil, err
+	}
+
+	if s.rateLimiter != nil {
+		if err := s.rateLimiter.CheckVerifyIP(clientIP); err != nil {
+			return nil, err
+		}
 	}
 
 	if s.pool == nil {
@@ -186,31 +193,51 @@ func (s *Service) VerifyOTP(ctx context.Context, rawPhone, candidateOTP, userAge
 	err = s.pool.QueryRow(ctx, queryOTP, phone).Scan(&otpID, &storedHash, &attempts, &expiresAt, &consumedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			if s.rateLimiter != nil {
+				s.rateLimiter.RecordVerifyFailureIP(clientIP)
+			}
 			return nil, ErrOTPInvalid
 		}
 		return nil, fmt.Errorf("failed to query OTP record: %w", err)
 	}
 
 	if consumedAt != nil {
+		if s.rateLimiter != nil {
+			s.rateLimiter.RecordVerifyFailureIP(clientIP)
+		}
 		return nil, ErrOTPInvalid
 	}
 
 	if time.Now().After(expiresAt) {
+		if s.rateLimiter != nil {
+			s.rateLimiter.RecordVerifyFailureIP(clientIP)
+		}
 		return nil, ErrOTPExpired
 	}
 
 	if attempts >= MaxOTPVerificationAttempts {
+		if s.rateLimiter != nil {
+			s.rateLimiter.RecordVerifyFailureIP(clientIP)
+		}
 		return nil, ErrOTPAttemptsExceeded
 	}
 
 	// Verify constant-time hash
 	if !VerifyOTPHash(phone, candidateOTP, storedHash) {
+		if s.rateLimiter != nil {
+			s.rateLimiter.RecordVerifyFailureIP(clientIP)
+		}
 		// Increment attempts
 		_, _ = s.pool.Exec(ctx, `UPDATE auth_otps SET attempts = attempts + 1, updated_at = NOW() WHERE id = $1`, otpID)
 		if attempts+1 >= MaxOTPVerificationAttempts {
 			return nil, ErrOTPAttemptsExceeded
 		}
 		return nil, ErrOTPInvalid
+	}
+
+	// Reset IP verify failures on successful verification
+	if s.rateLimiter != nil {
+		s.rateLimiter.ResetVerifyIP(clientIP)
 	}
 
 	// Mark consumed

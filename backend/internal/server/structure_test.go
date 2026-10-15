@@ -126,7 +126,7 @@ func TestSocietyStructureAPI(t *testing.T) {
 		_, _ = db.Pool().Exec(ctx, `
 			INSERT INTO users (id, phone, status, created_at, updated_at)
 			VALUES ($1, $2, 'ACTIVE', NOW(), NOW())
-		`, unauthUserID, fmt.Sprintf("+919999%06d", time.Now().UnixNano()%1000000))
+		`, unauthUserID, fmt.Sprintf("919999%06d", time.Now().UnixNano()%1000000))
 		unauthToken := generateToken(unauthUserID)
 
 		r := httptest.NewRequest(http.MethodGet, "/api/v1/societies/"+testSocID+"/buildings", nil)
@@ -561,13 +561,19 @@ func TestSocietyStructureAPI(t *testing.T) {
 	t.Run("Assigned SOC_ADMIN permitted; unassigned platform ADMIN rejected", func(t *testing.T) {
 		// Create a platform ADMIN user (not SUPER_ADMIN)
 		platAdminID := uuid.New()
-		_, _ = db.Pool().Exec(ctx, `
+		platPhone := fmt.Sprintf("918%09d", time.Now().UnixNano()%1000000000)
+		if err := db.Pool().QueryRow(ctx, `
 			INSERT INTO users (id, phone, status, created_at, updated_at)
 			VALUES ($1, $2, 'ACTIVE', NOW(), NOW())
-		`, platAdminID, fmt.Sprintf("+918888%06d", time.Now().UnixNano()%1000000))
+			ON CONFLICT (phone) DO UPDATE SET updated_at = NOW()
+			RETURNING id
+		`, platAdminID, platPhone).Scan(&platAdminID); err != nil {
+			t.Fatalf("failed to insert plat admin: %v", err)
+		}
 		_, _ = db.Pool().Exec(ctx, `
 			INSERT INTO platform_roles (user_id, role, status, created_at, updated_at)
 			VALUES ($1, 'ADMIN', 'ACTIVE', NOW(), NOW())
+			ON CONFLICT (user_id, role) DO UPDATE SET status = 'ACTIVE'
 		`, platAdminID)
 		platAdminToken := generateToken(platAdminID)
 
@@ -582,14 +588,22 @@ func TestSocietyStructureAPI(t *testing.T) {
 
 		// Assign this user as SOC_ADMIN for testSocID
 		socAdminID := uuid.New()
-		_, _ = db.Pool().Exec(ctx, `
+		socPhone := fmt.Sprintf("917%09d", (time.Now().UnixNano()+777)%1000000000)
+		if err := db.Pool().QueryRow(ctx, `
 			INSERT INTO users (id, phone, status, created_at, updated_at)
 			VALUES ($1, $2, 'ACTIVE', NOW(), NOW())
-		`, socAdminID, fmt.Sprintf("+917777%06d", time.Now().UnixNano()%1000000))
-		_, _ = db.Pool().Exec(ctx, `
+			ON CONFLICT (phone) DO UPDATE SET updated_at = NOW()
+			RETURNING id
+		`, socAdminID, socPhone).Scan(&socAdminID); err != nil {
+			t.Fatalf("failed to insert soc admin: %v", err)
+		}
+		if _, err := db.Pool().Exec(ctx, `
 			INSERT INTO society_user_roles (society_id, user_id, role, status, assigned_by, created_at, updated_at)
 			VALUES ($1, $2, 'SOC_ADMIN', 'ACTIVE', $3, NOW(), NOW())
-		`, uuid.MustParse(testSocID), socAdminID, superAdminRole.UserID)
+			ON CONFLICT (society_id, user_id, role) WHERE status = 'ACTIVE' DO UPDATE SET updated_at = NOW()
+		`, uuid.MustParse(testSocID), socAdminID, superAdminRole.UserID); err != nil {
+			t.Fatalf("failed to insert society_user_roles: %v", err)
+		}
 		socAdminToken := generateToken(socAdminID)
 
 		// SOC_ADMIN should succeed

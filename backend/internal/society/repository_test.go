@@ -37,7 +37,7 @@ func getOrCreateTestSuperAdmin(t *testing.T, repo *Repository) uuid.UUID {
 	query := `SELECT id FROM users LIMIT 1`
 	err := repo.pool.QueryRow(ctx, query).Scan(&userID)
 	if err != nil {
-		insertQuery := `INSERT INTO users (phone, status) VALUES ('+919967089101', 'ACTIVE') RETURNING id`
+		insertQuery := `INSERT INTO users (phone, status) VALUES ('919967089101', 'ACTIVE') RETURNING id`
 		err = repo.pool.QueryRow(ctx, insertQuery).Scan(&userID)
 		if err != nil {
 			t.Fatalf("failed to get/create test super admin: %v", err)
@@ -56,7 +56,7 @@ func TestSocietyLifecycleAndImmutability(t *testing.T) {
 	// 1. Create Society
 	regNum := "MUM/REG/12345"
 	email := "contact@gokuldham.org"
-	phone := "+919820123456"
+	phone := "919820123456"
 	addr2 := "Near Film City"
 
 	soc, err := repo.CreateSociety(ctx, CreateSocietyParams{
@@ -75,6 +75,12 @@ func TestSocietyLifecycleAndImmutability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSociety failed: %v", err)
 	}
+
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = repo.pool.Exec(ctx, "DELETE FROM document_categories WHERE society_id = $1", soc.ID)
+		_, _ = repo.pool.Exec(ctx, "DELETE FROM societies WHERE id = $1", soc.ID)
+	})
 
 	if soc.Status != StatusPending {
 		t.Errorf("expected initial status PENDING, got %s", soc.Status)

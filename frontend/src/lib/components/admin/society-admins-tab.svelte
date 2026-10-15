@@ -3,6 +3,7 @@
 	import Badge from '$lib/components/ui/badge.svelte';
 	import { societyApi, type SocietyAdminAssignment } from '$lib/api/society';
 	import { ApiClientError } from '$lib/api/client';
+	import { formatFullPhone, normalizePhoneInput, isValidIndianPhone } from '$lib/phone';
 	import {
 		UserPlus,
 		ShieldAlert,
@@ -10,7 +11,6 @@
 		Loader2,
 		AlertCircle,
 		CheckCircle2,
-		Phone,
 		RefreshCw
 	} from '@lucide/svelte';
 
@@ -63,36 +63,26 @@
 		}
 	});
 
-	function validatePhone(input: string): boolean {
-		const digits = input.replace(/\D/g, '');
-		if (digits.length === 10 && /^[6-9]/.test(digits)) return true;
-		if (digits.length === 12 && digits.startsWith('91') && /^[6-9]/.test(digits.slice(2)))
-			return true;
-		if (digits.length === 11 && digits.startsWith('0') && /^[6-9]/.test(digits.slice(1)))
-			return true;
-		return false;
-	}
-
 	async function handleAssignSubmit(e: SubmitEvent) {
 		e.preventDefault();
 		assignError = null;
 		assignSuccess = null;
 
-		const trimmed = assignPhone.trim();
-		if (!trimmed) {
+		const cleanPhone = normalizePhoneInput(assignPhone);
+		if (!cleanPhone) {
 			assignError = 'Please enter a valid mobile number.';
 			return;
 		}
 
-		if (!validatePhone(trimmed)) {
-			assignError = 'Please enter a valid 10-digit Indian mobile number.';
+		if (!isValidIndianPhone(cleanPhone)) {
+			assignError = 'Please enter a valid Indian mobile number (e.g. 919820123456).';
 			return;
 		}
 
 		isAssigning = true;
 		try {
 			await societyApi.assignSocietyAdmin(societyId, {
-				phone: trimmed,
+				phone: cleanPhone,
 				role: 'SOC_ADMIN'
 			});
 			assignSuccess = 'Society administrator successfully assigned.';
@@ -156,22 +146,22 @@
 	}
 </script>
 
-<div class="space-y-4">
+<div class="space-y-4 text-neutral-900">
 	<!-- Actions & Filter Bar -->
 	<div class="flex flex-wrap items-center justify-between gap-3">
 		<div class="flex items-center gap-2">
-			<label class="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
+			<label class="flex cursor-pointer items-center gap-2 text-xs text-neutral-600">
 				<input
 					type="checkbox"
 					bind:checked={showRevoked}
-					class="rounded border-slate-700 bg-slate-800 text-indigo-600 focus:ring-indigo-500"
+					class="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-950"
 				/>
 				<span>Include Revoked History</span>
 			</label>
 			<button
 				type="button"
 				onclick={loadAdmins}
-				class="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+				class="rounded-full p-1.5 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
 				title="Refresh roster"
 				aria-label="Refresh administrators roster"
 			>
@@ -197,54 +187,56 @@
 	<!-- Error Alert -->
 	{#if error}
 		<div
-			class="flex items-start gap-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300"
+			class="flex items-start gap-2.5 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800"
 		>
-			<AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+			<AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
 			<span>{error}</span>
 		</div>
 	{/if}
 
 	<!-- Roster List -->
 	{#if isLoading}
-		<div class="flex flex-col items-center justify-center py-10 text-slate-400">
-			<Loader2 class="h-6 w-6 animate-spin text-indigo-500" />
+		<div class="flex flex-col items-center justify-center py-10 text-neutral-500">
+			<Loader2 class="h-6 w-6 animate-spin text-neutral-900" />
 			<span class="mt-2 text-xs">Loading society administrators...</span>
 		</div>
 	{:else if admins.length === 0}
 		<div
-			class="flex flex-col items-center justify-center rounded-xl border border-slate-800/80 bg-slate-950/40 py-10 text-center"
+			class="flex flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-neutral-50/60 py-10 text-center"
 		>
-			<ShieldAlert class="h-8 w-8 text-slate-600" />
-			<p class="mt-2 text-xs font-medium text-slate-300">No Administrators Assigned</p>
-			<p class="mt-1 text-[11px] text-slate-500">
+			<ShieldAlert class="h-8 w-8 text-neutral-400" />
+			<p class="mt-2 text-xs font-semibold text-neutral-800">No Administrators Assigned</p>
+			<p class="mt-1 text-[11px] text-neutral-500">
 				Assign an existing user by mobile phone to administer this society.
 			</p>
 		</div>
 	{:else}
 		<div
-			class="divide-y divide-slate-800/80 overflow-hidden rounded-xl border border-slate-800 bg-slate-950/50"
+			class="divide-y divide-neutral-100 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xs"
 		>
 			{#each admins as admin (admin.id)}
-				<div class="flex items-center justify-between p-3 transition-colors hover:bg-slate-900/60">
+				<div
+					class="flex items-center justify-between p-3.5 transition-colors hover:bg-neutral-50/60"
+				>
 					<div class="flex items-center gap-3">
 						<div
-							class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/10 font-mono text-xs font-semibold text-indigo-400"
+							class="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 font-mono text-xs font-bold text-neutral-800"
 						>
 							SA
 						</div>
 						<div>
 							<div class="flex items-center gap-2">
-								<span class="font-mono text-xs font-medium text-slate-200">
-									{admin.user_phone_masked}
+								<span class="font-mono text-xs font-semibold text-neutral-900">
+									{formatFullPhone(admin.user_phone_masked)}
 								</span>
 								<Badge variant={admin.status === 'ACTIVE' ? 'success' : 'destructive'}>
 									{admin.status}
 								</Badge>
-								<Badge variant="outline" class="text-[10px] text-slate-400">
+								<Badge variant="outline" class="text-[10px] text-neutral-600">
 									{admin.role}
 								</Badge>
 							</div>
-							<div class="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
+							<div class="mt-0.5 flex items-center gap-2 text-[11px] text-neutral-500">
 								<span>Assigned: {formatDate(admin.created_at)}</span>
 								{#if admin.status === 'REVOKED' && admin.revoked_at}
 									<span>· Revoked: {formatDate(admin.revoked_at)}</span>
@@ -258,7 +250,7 @@
 							<Button
 								variant="ghost"
 								size="sm"
-								class="text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
+								class="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
 								onclick={() => {
 									revokeError = null;
 									adminToRevoke = admin;
@@ -286,7 +278,7 @@
 		<button
 			type="button"
 			tabindex="-1"
-			class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity"
+			class="fixed inset-0 bg-neutral-950/40 backdrop-blur-xs transition-opacity"
 			onclick={() => {
 				if (!isAssigning) isAssignOpen = false;
 			}}
@@ -294,78 +286,83 @@
 		></button>
 
 		<div
-			class="relative w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl"
+			class="relative w-full max-w-md rounded-3xl border border-neutral-200 bg-white p-6 text-neutral-900 shadow-2xl"
 		>
-			<div class="flex items-center gap-2.5 border-b border-slate-800/80 pb-4">
+			<div class="flex items-center gap-2.5 border-b border-neutral-100 pb-4">
 				<div
-					class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400"
+					class="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-100 text-neutral-900"
 				>
-					<UserPlus class="h-5 w-5" />
+					<UserPlus class="h-4 w-4" />
 				</div>
 				<div>
-					<h3 id="assign-admin-title" class="text-base font-semibold text-slate-100">
+					<h3
+						id="assign-admin-title"
+						class="text-base font-semibold tracking-tight text-neutral-900"
+					>
 						Assign Society Administrator
 					</h3>
-					<p class="text-xs text-slate-400">Target user must already be registered via OTP.</p>
+					<p class="text-xs text-neutral-500">Target user must already be registered via OTP.</p>
 				</div>
 			</div>
 
 			<form onsubmit={handleAssignSubmit} class="mt-4 space-y-4">
 				{#if assignError}
 					<div
-						class="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300"
+						class="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800"
 					>
-						<AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+						<AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
 						<span>{assignError}</span>
 					</div>
 				{/if}
 
 				{#if assignSuccess}
 					<div
-						class="flex items-start gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300"
+						class="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800"
 					>
-						<CheckCircle2 class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+						<CheckCircle2 class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
 						<span>{assignSuccess}</span>
 					</div>
 				{/if}
 
 				<div>
-					<label for="assign-phone-input" class="block text-xs font-medium text-slate-300">
+					<label for="assign-phone-input" class="block text-xs font-medium text-neutral-700">
 						Mobile Phone Number
 					</label>
-					<div class="relative mt-1">
-						<div
-							class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500"
+					<div
+						class="mt-1 flex overflow-hidden rounded-xl border border-neutral-300 bg-white transition-colors focus-within:border-neutral-950"
+					>
+						<span
+							class="inline-flex items-center border-r border-neutral-200 bg-neutral-100 px-3 text-xs font-semibold text-neutral-600 select-none"
 						>
-							<Phone class="h-4 w-4" />
-						</div>
+							+
+						</span>
 						<input
 							id="assign-phone-input"
 							type="tel"
 							bind:value={assignPhone}
-							placeholder="+91 98201 23456"
+							placeholder="919820123456"
 							disabled={isAssigning}
 							required
-							class="w-full rounded-xl border border-slate-800 bg-slate-950/60 py-2.5 pr-4 pl-9 font-mono text-xs text-slate-100 placeholder-slate-500 transition-colors focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:opacity-50"
+							class="w-full bg-transparent px-3 py-2.5 font-mono text-xs text-neutral-900 placeholder-neutral-400 focus:outline-hidden disabled:opacity-50"
 						/>
 					</div>
-					<p class="mt-1 text-[11px] text-slate-500">
-						Accepts standard 10-digit mobile or +91 format.
-					</p>
+					<p class="mt-1 text-[11px] text-neutral-500">Indian mobile number (e.g. 919820123456).</p>
 				</div>
 
-				<div class="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+				<div class="rounded-2xl border border-neutral-200 bg-neutral-50/60 p-3.5">
 					<div class="flex items-center justify-between text-xs">
-						<span class="text-slate-400">Assigned Role:</span>
-						<Badge variant="outline" class="font-mono text-indigo-300">SOC_ADMIN</Badge>
+						<span class="text-neutral-600">Assigned Role:</span>
+						<Badge variant="outline" class="bg-neutral-100 font-mono text-neutral-900"
+							>SOC_ADMIN</Badge
+						>
 					</div>
-					<p class="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+					<p class="mt-1.5 text-[11px] leading-relaxed text-neutral-500">
 						Society Administrator holds permissions strictly inside this society tenant. Platform
 						administration roles are not affected.
 					</p>
 				</div>
 
-				<div class="flex items-center justify-end gap-2 border-t border-slate-800/80 pt-2">
+				<div class="flex items-center justify-end gap-2 border-t border-neutral-100 pt-3">
 					<Button
 						type="button"
 						variant="ghost"
@@ -400,7 +397,7 @@
 		<button
 			type="button"
 			tabindex="-1"
-			class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity"
+			class="fixed inset-0 bg-neutral-950/40 backdrop-blur-xs transition-opacity"
 			onclick={() => {
 				if (!isRevoking) adminToRevoke = null;
 			}}
@@ -408,47 +405,48 @@
 		></button>
 
 		<div
-			class="relative w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl"
+			class="relative w-full max-w-md rounded-3xl border border-neutral-200 bg-white p-6 text-neutral-900 shadow-2xl"
 		>
-			<div class="flex items-center gap-2.5 border-b border-slate-800/80 pb-4">
-				<div
-					class="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10 text-rose-400"
-				>
-					<ShieldAlert class="h-5 w-5" />
+			<div class="flex items-center gap-2.5 border-b border-neutral-100 pb-4">
+				<div class="flex h-9 w-9 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+					<ShieldAlert class="h-4 w-4" />
 				</div>
 				<div>
-					<h3 id="revoke-modal-title" class="text-base font-semibold text-slate-100">
+					<h3
+						id="revoke-modal-title"
+						class="text-base font-semibold tracking-tight text-neutral-900"
+					>
 						Revoke Society Administrator
 					</h3>
-					<p class="text-xs text-slate-400">Immediate access revocation.</p>
+					<p class="text-xs text-neutral-500">Immediate access revocation.</p>
 				</div>
 			</div>
 
 			<div class="mt-4 space-y-3">
 				{#if revokeError}
 					<div
-						class="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300"
+						class="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800"
 					>
-						<AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+						<AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
 						<span>{revokeError}</span>
 					</div>
 				{/if}
 
-				<p class="text-xs leading-relaxed text-slate-300">
-					Are you sure you want to revoke <strong class="font-mono text-slate-100"
-						>{adminToRevoke.user_phone_masked}</strong
+				<p class="text-xs leading-relaxed text-neutral-700">
+					Are you sure you want to revoke <strong class="font-mono text-neutral-900"
+						>{formatFullPhone(adminToRevoke.user_phone_masked)}</strong
 					> as administrator for this society?
 				</p>
 
 				<div
-					class="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3 text-xs leading-relaxed text-rose-300/90"
+					class="rounded-2xl border border-rose-200 bg-rose-50/60 p-3.5 text-xs leading-relaxed text-rose-900"
 				>
 					Revocation takes effect immediately without waiting for token expiry. Historical
 					assignment records will be preserved.
 				</div>
 			</div>
 
-			<div class="mt-6 flex items-center justify-end gap-2 border-t border-slate-800/80 pt-3">
+			<div class="mt-6 flex items-center justify-end gap-2 border-t border-neutral-100 pt-3">
 				<Button
 					type="button"
 					variant="ghost"
@@ -460,8 +458,7 @@
 				</Button>
 				<Button
 					type="button"
-					variant="primary"
-					class="bg-rose-600 text-white hover:bg-rose-700"
+					variant="destructive"
 					size="sm"
 					disabled={isRevoking}
 					onclick={confirmRevoke}

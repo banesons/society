@@ -97,34 +97,37 @@
 		<button
 			type="button"
 			tabindex="-1"
-			class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity"
+			class="fixed inset-0 bg-neutral-950/40 backdrop-blur-xs transition-opacity"
 			onclick={() => !isLoading && onClose()}
 			aria-label="Close dialog overlay"
 		></button>
 
 		<!-- Modal Container -->
 		<div
-			class="relative w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl transition-all"
+			class="relative w-full max-w-md rounded-3xl border border-neutral-200 bg-white p-6 text-neutral-900 shadow-2xl transition-all"
 		>
-			<div class="flex items-center justify-between border-b border-slate-800/80 pb-4">
+			<div class="flex items-center justify-between border-b border-neutral-100 pb-4">
 				<div class="flex items-center gap-2.5">
 					<div
-						class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400"
+						class="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-100 text-neutral-900"
 					>
-						<UserPlus class="h-5 w-5" />
+						<UserPlus class="h-4 w-4" />
 					</div>
 					<div>
-						<h2 id="create-admin-title" class="text-base font-semibold text-slate-100">
+						<h2
+							id="create-admin-title"
+							class="text-base font-semibold tracking-tight text-neutral-900"
+						>
 							Create Administrator
 						</h2>
-						<p class="text-xs text-slate-400">Assign platform ADMIN role to a mobile identity</p>
+						<p class="text-xs text-neutral-500">Assign platform ADMIN role to a mobile identity</p>
 					</div>
 				</div>
 				<button
 					type="button"
 					onclick={() => !isLoading && onClose()}
 					disabled={isLoading}
-					class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50"
+					class="rounded-full p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50"
 					aria-label="Close dialog"
 				>
 					<X class="h-4 w-4" />
@@ -135,9 +138,9 @@
 				{#if error}
 					<div
 						role="alert"
-						class="flex items-start gap-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300"
+						class="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800"
 					>
-						<AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+						<AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
 						<span>{error}</span>
 					</div>
 				{/if}
@@ -145,20 +148,20 @@
 				{#if successMsg}
 					<div
 						role="status"
-						class="flex items-center gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300"
+						class="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800"
 					>
-						<CheckCircle2 class="h-4 w-4 shrink-0 text-emerald-400" />
+						<CheckCircle2 class="h-4 w-4 shrink-0 text-emerald-600" />
 						<span>{successMsg}</span>
 					</div>
 				{/if}
 
 				<div>
-					<label for="admin-phone" class="block text-xs font-medium text-slate-300">
+					<label for="admin-phone" class="block text-xs font-medium text-neutral-700">
 						Mobile Phone Number
 					</label>
 					<div class="relative mt-1.5">
 						<div
-							class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400"
+							class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-neutral-400"
 						>
 							<Phone class="h-4 w-4" />
 						</div>
@@ -171,16 +174,16 @@
 							disabled={isLoading}
 							autocomplete="tel"
 							required
-							class="block w-full rounded-lg border border-slate-700 bg-slate-950/80 py-2.5 pr-3 pl-9 text-sm text-slate-100 placeholder-slate-500 transition-colors focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:opacity-50"
+							class="block w-full rounded-xl border border-neutral-300 bg-white py-2.5 pr-3 pl-9 font-mono text-sm text-neutral-900 placeholder-neutral-400 transition-colors focus:border-neutral-950 focus:outline-hidden disabled:opacity-50"
 						/>
 					</div>
-					<p class="mt-1.5 text-[11px] text-slate-400">
+					<p class="mt-1.5 text-[11px] text-neutral-500">
 						Enter 10-digit Indian mobile number. The administrator will sign in using standard OTP
 						verification.
 					</p>
 				</div>
 
-				<div class="flex items-center justify-end gap-3 pt-3">
+				<div class="flex items-center justify-end gap-3 border-t border-neutral-100 pt-3">
 					<Button
 						type="button"
 						variant="ghost"

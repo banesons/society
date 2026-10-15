@@ -20,7 +20,7 @@ func TestAuthEndpoints(t *testing.T) {
 		Port:           "8080",
 		Env:            "test",
 		AllowedOrigins: []string{"http://localhost:5173"},
-		DevTestPhones:  []string{"+919967089101", "+918422862001"},
+		DevTestPhones:  []string{"919967089101", "918422862001"},
 		DevTestOTP:     "123456",
 	}
 
@@ -47,7 +47,7 @@ func TestAuthEndpoints(t *testing.T) {
 
 	router := SetupRouter(cfg, logger, nil, authService, tm, nil, nil)
 
-	t.Run("POST /auth/otp/send with valid phone", func(t *testing.T) {
+	t.Run("POST /auth/otp/send with valid phone returns otp in dev", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"phone": "9967089101"})
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/otp/send", bytes.NewReader(body))
 		rec := httptest.NewRecorder()
@@ -67,8 +67,13 @@ func TestAuthEndpoints(t *testing.T) {
 			t.Errorf("expected success=true")
 		}
 
+		dataMap, ok := env.Data.(map[string]interface{})
+		if !ok || dataMap["otp"] != "123456" {
+			t.Errorf("expected otp=123456 in dev response, got %v", dataMap["otp"])
+		}
+
 		// Verify MockProvider received the test OTP
-		lastOTP, exists := smsProvider.GetLastOTP("+919967089101")
+		lastOTP, exists := smsProvider.GetLastOTP("919967089101")
 		if !exists || lastOTP != "123456" {
 			t.Errorf("expected MockProvider to have OTP 123456, got %s (exists=%v)", lastOTP, exists)
 		}

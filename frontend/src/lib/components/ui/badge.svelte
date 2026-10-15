@@ -15,17 +15,17 @@
 	} & HTMLAttributes<HTMLSpanElement> = $props();
 
 	const variants = {
-		default: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30',
-		success: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-		warning: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-		destructive: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
-		outline: 'border-slate-700 text-slate-300'
+		default: 'bg-neutral-900 text-white border-neutral-900',
+		success: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+		warning: 'bg-amber-50 text-amber-800 border-amber-200',
+		destructive: 'bg-rose-50 text-rose-800 border-rose-200',
+		outline: 'border-neutral-300 bg-white/70 text-neutral-800'
 	};
 </script>
 
 <span
 	class={cn(
-		'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium tracking-wide transition-colors',
+		'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium tracking-tight transition-colors select-none',
 		variants[variant] || variants.default,
 		className
 	)}

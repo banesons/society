@@ -82,6 +82,7 @@ Key architectural and business requirements:
     2. `POST .../departure/confirm` validates version hash. Rejects with `409 PREVIEW_STALE` if relationships changed between preview and confirmation.
   - Preserves ownership records (`PRIMARY_OWNER`, `SECONDARY_OWNER`). If resident, flips `is_occupant` to `false`.
   - Transitions confirmed tenancies and family occupancy records to `status = 'ENDED'`, `end_date = confirmed_date`.
+  - **Structured Departure Reasons**: Requires a canonical `reason_code` (`TENANT_MOVED_OUT`, `LEASE_EXPIRED`, `OWNERSHIP_TRANSFERRED`, `MEMBER_RELOCATED`, `FAMILY_MEMBER_DEPARTED`, `MEMBERSHIP_TERMINATED`, `DECEASED`, `OTHER`). When `OTHER` is selected, `reason_details` is mandatory and limited to 500 characters. Reason codes and details are durably persisted in `society_members` and recorded in transactional audit logs.
   - Executes atomically with audit logs in a single transaction.
 - **Returning Member Semantics**: If a departed member returns (`LEFT` $\to$ `ACTIVE`), historical ended relationships are **never** reactivated automatically. New tenancy or occupancy requires an explicit new relationship with a fresh `start_date`.
 

@@ -78,3 +78,4 @@ Verifies backend liveness and database connectivity status without exposing sens
 - [[../architecture/02-backend|Backend Architecture]]
 - [[../decisions/002-api-contract|ADR 002: Unified API Contract]]
 - [[../decisions/003-http-methods|ADR 003: Semantic HTTP Methods]]
+- [[17-dashboard-reporting-api|API 17: Dashboard & Reporting API]]

@@ -15,19 +15,22 @@ Generates and dispatches a 6-digit OTP to the specified phone number.
 - **Request Body**:
   ```json
   {
-    "phone": "9967089101"
+    "phone": "919967089101"
   }
   ```
+  *Note: Phone numbers are trimmed and stripped of formatting/`+`/spaces on both client and server, stored and communicated strictly as pure numeric integers (`91[6-9]\\d{9}`).*
 - **Success Response (`200 OK`)**:
   ```json
   {
     "success": true,
     "data": {
-      "resend_after_seconds": 60
+      "resend_after_seconds": 60,
+      "otp": "193298"
     },
     "meta": null
   }
   ```
+  *Note: In non-production environments (`ENV!=production`), `data.otp` is returned directly in the response payload to allow instant verification and frontend automated testing without inspecting logs.*
 - **Error Codes**:
   - `INVALID_PHONE`: Malformed or non-Indian phone number.
   - `OTP_COOLDOWN`: Resend attempted before 60-second cooldown expires.
@@ -44,8 +47,8 @@ Verifies the OTP, provisions the user if new (JIT), checks active device limits,
 - **Request Body**:
   ```json
   {
-    "phone": "9967089101",
-    "otp": "123456"
+    "phone": "919967089101",
+    "otp": "193298"
   }
   ```
 - **Success Response (`200 OK`)**:
@@ -58,7 +61,7 @@ Verifies the OTP, provisions the user if new (JIT), checks active device limits,
       "expires_in": 900,
       "user": {
         "id": "c7a8b4e2-6d1a-4c28-98e3-05f7c32a84b1",
-        "phone": "+91 9967xxxx01",
+        "phone": "919967089101",
         "status": "ACTIVE"
       },
       "session_replaced": true
@@ -160,7 +163,19 @@ Retrieves the identity details of the authenticated user.
     "data": {
       "id": "c7a8b4e2-6d1a-4c28-98e3-05f7c32a84b1",
       "phone": "+91 9967xxxx01",
-      "status": "ACTIVE"
+      "status": "ACTIVE",
+      "platform_roles": ["SUPER_ADMIN"],
+      "society_assignments": [
+        {
+          "society_id": "0a2c153c-32ca-458e-a090-81a4687b7a76",
+          "society_code": "SOC-PUN-GVR202",
+          "society_name": "Greenview Residency",
+          "role": "SOC_ADMIN",
+          "status": "ACTIVE",
+          "city": "Pune",
+          "state": "Maharashtra"
+        }
+      ]
     },
     "meta": null
   }

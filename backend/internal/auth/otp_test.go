@@ -22,7 +22,7 @@ func TestGenerateNumericOTP(t *testing.T) {
 }
 
 func TestVerifyOTPHash(t *testing.T) {
-	phone := "+919967089101"
+	phone := "919967089101"
 	otp := "123456"
 
 	hash := HashOTP(phone, otp)
@@ -35,7 +35,7 @@ func TestVerifyOTPHash(t *testing.T) {
 		t.Errorf("expected VerifyOTPHash to return false for incorrect OTP")
 	}
 
-	if VerifyOTPHash("+918422862001", otp, hash) {
+	if VerifyOTPHash("918422862001", otp, hash) {
 		t.Errorf("expected VerifyOTPHash to return false for different phone salt")
 	}
 }

@@ -6,7 +6,7 @@ import (
 
 func TestRateLimiter(t *testing.T) {
 	rl := NewRateLimiter()
-	phone := "+919967089101"
+	phone := "919967089101"
 
 	t.Run("first request succeeds", func(t *testing.T) {
 		resendAfter, err := rl.CheckAndRecordPhone(phone)
@@ -36,6 +36,35 @@ func TestRateLimiter(t *testing.T) {
 		err := rl.CheckAndRecordIP(ip)
 		if err != ErrIPRateLimited {
 			t.Fatalf("expected ErrIPRateLimited after 10 requests, got %v", err)
+		}
+	})
+
+	t.Run("IP verification failure rate limiting and reset", func(t *testing.T) {
+		ip := "198.51.100.42"
+
+		// Initial check passes
+		if err := rl.CheckVerifyIP(ip); err != nil {
+			t.Fatalf("expected nil on initial check, got %v", err)
+		}
+
+		// Record MaxIPVerifyFailures - 1
+		for i := 0; i < MaxIPVerifyFailures-1; i++ {
+			rl.RecordVerifyFailureIP(ip)
+		}
+		if err := rl.CheckVerifyIP(ip); err != nil {
+			t.Fatalf("expected nil before limit, got %v", err)
+		}
+
+		// 20th failure triggers rate limit
+		rl.RecordVerifyFailureIP(ip)
+		if err := rl.CheckVerifyIP(ip); err != ErrVerifyIPRateLimited {
+			t.Fatalf("expected ErrVerifyIPRateLimited, got %v", err)
+		}
+
+		// Reset clears failures
+		rl.ResetVerifyIP(ip)
+		if err := rl.CheckVerifyIP(ip); err != nil {
+			t.Fatalf("expected nil after reset, got %v", err)
 		}
 	})
 }

@@ -16,10 +16,13 @@
 		"test": "npm run test:unit -- --run"
 	},
 	"dependencies": {
+		"@firebase/app": "^0.16.2",
+		"@firebase/messaging": "^0.13.3",
 		"@lucide/svelte": "^1.48.0",
 		"@supabase/supabase-js": "^2.49.1",
 		"@tanstack/svelte-query": "^5.67.2",
 		"clsx": "^2.1.1",
+		"firebase": "^11.10.0",
 		"tailwind-merge": "^3.0.2"
 	},
 	"devDependencies": {

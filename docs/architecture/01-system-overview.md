@@ -74,5 +74,7 @@ chs_neu/
 - [[02-backend|Backend Architecture]]
 - [[03-frontend|Frontend Architecture]]
 - [[04-supabase|Supabase Architecture]]
+- [[21-production-deployment-and-domain-topology|Production Deployment & Domain Topology]]
 - [[../decisions/001-go-sveltekit-supabase|ADR 001: Core Stack]]
 - [[../decisions/006-development-environment|ADR 006: Development Topology]]
+- [[../decisions/031-production-domain-and-deployment-topology|ADR 031: Production Domain Configuration]]

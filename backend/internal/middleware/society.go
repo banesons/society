@@ -122,6 +122,104 @@ func RequireSocietyAccess(role string, societyRepo *society.Repository, platform
 	}
 }
 
+// RequireAnySocietyRoleAccess validates that target society exists and caller has SUPER_ADMIN or ANY of the allowed society roles.
+func RequireAnySocietyRoleAccess(societyRepo *society.Repository, platformRepo *platform.Repository, allowedRoles ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reqID := GetRequestID(r.Context())
+
+			userID, ok := GetUserID(r.Context())
+			if !ok {
+				response.Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing authentication context", reqID)
+				return
+			}
+
+			societyIDStr := chi.URLParam(r, "id")
+			if societyIDStr == "" {
+				societyIDStr = chi.URLParam(r, "societyID")
+			}
+
+			societyID, err := uuid.Parse(societyIDStr)
+			if err != nil {
+				response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society identifier", reqID)
+				return
+			}
+
+			headerSocID := r.Header.Get("X-Society-ID")
+			if headerSocID != "" {
+				parsedHeaderID, err := uuid.Parse(headerSocID)
+				if err != nil || parsedHeaderID != societyID {
+					response.Error(w, http.StatusForbidden, "SOCIETY_ACCESS_DENIED", "Client society context mismatch", reqID)
+					return
+				}
+			}
+
+			if societyRepo == nil {
+				response.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Society repository unavailable", reqID)
+				return
+			}
+
+			// 1. Verify target society exists and check its operational status
+			soc, err := societyRepo.GetSocietyByID(r.Context(), societyID)
+			if err != nil {
+				if errors.Is(err, society.ErrSocietyNotFound) {
+					response.Error(w, http.StatusNotFound, "SOCIETY_NOT_FOUND", "Target society does not exist", reqID)
+					return
+				}
+				response.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to resolve society", reqID)
+				return
+			}
+
+			if soc.Status == society.StatusPending {
+				response.Error(w, http.StatusForbidden, "SOCIETY_PENDING", "Target society has not been activated", reqID)
+				return
+			}
+			if soc.Status == society.StatusSuspended {
+				response.Error(w, http.StatusForbidden, "SOCIETY_SUSPENDED", "Target society is on administrative hold", reqID)
+				return
+			}
+			if soc.Status != society.StatusActive {
+				response.Error(w, http.StatusForbidden, "SOCIETY_ACCESS_DENIED", "Target society is not active", reqID)
+				return
+			}
+
+			// 2. Check if caller is platform SUPER_ADMIN
+			if platformRepo != nil {
+				pRole, err := platformRepo.GetUserPlatformRole(r.Context(), userID)
+				if err == nil && pRole != nil && pRole.Status == platform.StatusActive && pRole.Role == platform.RoleSuperAdmin {
+					ctx := context.WithValue(r.Context(), SocietyIDContextKey, societyID)
+					ctx = context.WithValue(ctx, SocietyRoleContextKey, "SUPER_ADMIN")
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+
+			// 3. Check society roles
+			_, assignment, err := societyRepo.VerifySocietyRolesAccess(r.Context(), societyID, userID, allowedRoles...)
+			if err != nil {
+				switch {
+				case errors.Is(err, society.ErrSocietyNotFound):
+					response.Error(w, http.StatusNotFound, "SOCIETY_NOT_FOUND", "Target society does not exist", reqID)
+				case errors.Is(err, society.ErrSocietyPending):
+					response.Error(w, http.StatusForbidden, "SOCIETY_PENDING", "Target society has not been activated", reqID)
+				case errors.Is(err, society.ErrSocietySuspended):
+					response.Error(w, http.StatusForbidden, "SOCIETY_SUSPENDED", "Target society is on administrative hold", reqID)
+				case errors.Is(err, society.ErrSocietyAccessDenied):
+					response.Error(w, http.StatusForbidden, "SOCIETY_ACCESS_DENIED", "You do not have active access to this society", reqID)
+				default:
+					response.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to verify society authorization", reqID)
+				}
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), SocietyIDContextKey, societyID)
+			ctx = context.WithValue(ctx, SocietyRoleContextKey, assignment.Role)
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 // RequireSocietyRole validates that the target society exists, is in ACTIVE status,
 // and that the authenticated caller holds an ACTIVE role assignment for that society.
 // Society context is extracted canonically from the URL parameter.
@@ -178,6 +276,81 @@ func RequireSocietyRole(role string, repo *society.Repository) func(http.Handler
 				}
 				return
 			}
+
+			ctx := context.WithValue(r.Context(), SocietyIDContextKey, societyID)
+			ctx = context.WithValue(ctx, SocietyRoleContextKey, role)
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// RequireSocietyMemberOrAdminAccess validates that target society exists and caller is SUPER_ADMIN, SOC_ADMIN, GATEKEEPER, or an active RESIDENT member.
+func RequireSocietyMemberOrAdminAccess(societyRepo *society.Repository, platformRepo *platform.Repository) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reqID := GetRequestID(r.Context())
+
+			userID, ok := GetUserID(r.Context())
+			if !ok {
+				response.Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing authentication context", reqID)
+				return
+			}
+
+			societyIDStr := chi.URLParam(r, "id")
+			if societyIDStr == "" {
+				societyIDStr = chi.URLParam(r, "societyID")
+			}
+
+			societyID, err := uuid.Parse(societyIDStr)
+			if err != nil {
+				response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society identifier", reqID)
+				return
+			}
+
+			headerSocID := r.Header.Get("X-Society-ID")
+			if headerSocID != "" {
+				parsedHeaderID, err := uuid.Parse(headerSocID)
+				if err != nil || parsedHeaderID != societyID {
+					response.Error(w, http.StatusForbidden, "SOCIETY_ACCESS_DENIED", "Client society context mismatch", reqID)
+					return
+				}
+			}
+
+			if societyRepo == nil {
+				response.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Society repository unavailable", reqID)
+				return
+			}
+
+			// 1. Check platform SUPER_ADMIN
+			if platformRepo != nil {
+				pRole, err := platformRepo.GetUserPlatformRole(r.Context(), userID)
+				if err == nil && pRole != nil && pRole.Status == platform.StatusActive && pRole.Role == platform.RoleSuperAdmin {
+					ctx := context.WithValue(r.Context(), SocietyIDContextKey, societyID)
+					ctx = context.WithValue(ctx, SocietyRoleContextKey, "SUPER_ADMIN")
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+
+			// 2. Check society membership or assigned role
+			soc, role, err := societyRepo.VerifyActiveSocietyMembership(r.Context(), societyID, userID)
+			if err != nil {
+				switch {
+				case errors.Is(err, society.ErrSocietyNotFound):
+					response.Error(w, http.StatusNotFound, "SOCIETY_NOT_FOUND", "Target society does not exist", reqID)
+				case errors.Is(err, society.ErrSocietyPending):
+					response.Error(w, http.StatusForbidden, "SOCIETY_PENDING", "Target society has not been activated", reqID)
+				case errors.Is(err, society.ErrSocietySuspended):
+					response.Error(w, http.StatusForbidden, "SOCIETY_SUSPENDED", "Target society is on administrative hold", reqID)
+				case errors.Is(err, society.ErrSocietyAccessDenied):
+					response.Error(w, http.StatusForbidden, "SOCIETY_ACCESS_DENIED", "You do not have active access to this society", reqID)
+				default:
+					response.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to verify society authorization", reqID)
+				}
+				return
+			}
+			_ = soc
 
 			ctx := context.WithValue(r.Context(), SocietyIDContextKey, societyID)
 			ctx = context.WithValue(ctx, SocietyRoleContextKey, role)

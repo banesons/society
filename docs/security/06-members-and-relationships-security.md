@@ -57,7 +57,7 @@ Mutations are audited transactionally in `platform_audit_logs`:
 - Actions: `MEMBER_REGISTERED`, `MEMBER_UPDATED`, `MEMBER_STATUS_CHANGED`, `MEMBER_DEPARTED`, `UNIT_RELATIONSHIP_CREATED`, `UNIT_RELATIONSHIP_ENDED`.
 - Actor: Authenticated `user_id`.
 - Tenant: `society_id`.
-- Metadata: Entity identifiers and masked phone numbers only; zero unmasked PII or credentials recorded.
+- Metadata: Entity identifiers, masked phone numbers, and departure reason codes/details (`reason_code`, `reason_details`); zero unmasked PII or credentials recorded.
 
 ---
 

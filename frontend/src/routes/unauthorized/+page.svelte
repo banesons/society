@@ -19,40 +19,40 @@
 </script>
 
 <svelte:head>
-	<title>Access Denied — CHS Platform</title>
+	<title>Access Denied — chs.</title>
 	<meta name="description" content="Account access restrictions and unauthorized role state" />
 </svelte:head>
 
-<div class="flex min-h-[75vh] items-center justify-center px-4 py-10">
+<div class="flex min-h-[75vh] items-center justify-center px-4 py-12">
 	<div class="w-full max-w-lg space-y-6">
-		<Card class="border-amber-500/30 bg-slate-900/90 p-8 text-center shadow-2xl sm:p-10">
+		<Card class="border-neutral-200 bg-white p-8 text-center shadow-lg sm:p-10">
 			<div
-				class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-400 shadow-inner"
+				class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 text-amber-700"
 			>
 				<ShieldAlert class="h-7 w-7" />
 			</div>
 
 			<div class="mt-4 inline-flex items-center gap-1.5">
 				<Badge variant="warning">Access Denied</Badge>
-				<span class="text-xs text-slate-400">Platform Layer (S02)</span>
+				<span class="text-xs text-neutral-500">Platform Layer (S02)</span>
 			</div>
 
-			<h1 class="mt-3 text-xl font-bold tracking-tight text-white sm:text-2xl">
+			<h1 class="mt-3 text-2xl font-bold tracking-tight text-neutral-950">
 				No Platform Administrative Role
 			</h1>
 
 			{#if auth.isAuthenticated && auth.user}
 				<div
-					class="mt-4 rounded-xl border border-slate-800 bg-slate-950/70 p-3.5 text-xs text-slate-300"
+					class="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-left text-xs text-neutral-700"
 				>
-					<div class="flex items-center justify-center gap-2 font-mono text-slate-200">
-						<User class="h-3.5 w-3.5 text-slate-400" />
+					<div class="flex items-center gap-2 font-mono text-neutral-900">
+						<User class="h-3.5 w-3.5 text-neutral-500" />
 						<span>Verified Identity: <strong>{auth.user.phone}</strong></span>
 					</div>
-					<div class="mt-1 text-[11px] text-slate-400">
-						Account status: <span class="font-medium text-emerald-400">ACTIVE</span> · Platform
+					<div class="mt-1 text-[11px] text-neutral-500">
+						Account status: <span class="font-medium text-emerald-700">ACTIVE</span> · Platform
 						roles:
-						<span class="italic"
+						<span class="font-medium text-neutral-900 italic"
 							>{auth.user.platform_roles?.length
 								? auth.user.platform_roles.join(', ')
 								: 'None'}</span
@@ -60,13 +60,14 @@
 					</div>
 				</div>
 
-				<p class="mt-4 text-xs leading-relaxed text-slate-400">
+				<p class="mt-4 text-xs leading-relaxed text-neutral-600">
 					Your mobile identity has been authenticated, but you do not hold an active <code
-						class="text-indigo-400">SUPER_ADMIN</code
+						class="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-neutral-900"
+						>SUPER_ADMIN</code
 					> platform role. Platform management rosters and audit logs are restricted.
 				</p>
 			{:else}
-				<p class="mt-4 text-xs leading-relaxed text-slate-400">
+				<p class="mt-4 text-xs leading-relaxed text-neutral-600">
 					You are not signed in. Please sign in with an authorized Super Admin account to access
 					administrative features.
 				</p>
@@ -103,12 +104,12 @@
 			</div>
 
 			<div
-				class="mt-6 flex items-center justify-center gap-2 border-t border-slate-800/80 pt-6 text-[11px] text-slate-500"
+				class="mt-6 flex items-center justify-center gap-2 border-t border-neutral-100 pt-6 text-[11px] text-neutral-500"
 			>
 				<span>Need to test with dev numbers?</span>
 				<a
 					href="/developer"
-					class="inline-flex items-center gap-1 font-medium text-indigo-400 hover:text-indigo-300"
+					class="inline-flex items-center gap-1 font-medium text-neutral-950 underline underline-offset-4 hover:opacity-75"
 				>
 					<Terminal class="h-3 w-3" />
 					<span>Developer Diagnostics</span>

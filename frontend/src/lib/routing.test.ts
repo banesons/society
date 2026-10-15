@@ -11,54 +11,146 @@ interface TestAuth {
 
 const testAuth = auth as unknown as TestAuth;
 
+import { resolvePostLoginRoute, getContextualBackDestination } from './routing';
+
 describe('Frontend Routing & Authentication UX', () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
 		testAuth.clearSession();
 	});
 
-	describe('Role Determination for Login Navigation', () => {
+	describe('Documented Post-Login Routing Resolution Policy', () => {
 		it('redirects SUPER_ADMIN to /admin', () => {
-			testAuth.user = {
+			const user = {
 				id: 'u-super',
 				phone: '+91 9967xxxx01',
 				status: 'ACTIVE',
-				platform_roles: ['SUPER_ADMIN']
+				platform_roles: ['SUPER_ADMIN'],
+				society_assignments: []
 			};
-			testAuth.isAuthenticated = true;
-
-			expect(auth.isSuperAdmin).toBe(true);
-			// Target route for Super Admin
-			const targetRoute = auth.isSuperAdmin ? '/admin' : '/unauthorized';
-			expect(targetRoute).toBe('/admin');
+			const res = resolvePostLoginRoute(user);
+			expect(res).toEqual({ type: 'navigate', path: '/admin' });
 		});
 
-		it('redirects ordinary authenticated user to /unauthorized', () => {
-			testAuth.user = {
-				id: 'u-ordinary',
+		it('redirects platform ADMIN to /admin without implicit society access', () => {
+			const user = {
+				id: 'u-admin',
+				phone: '+91 8422xxxx01',
+				status: 'ACTIVE',
+				platform_roles: ['ADMIN'],
+				society_assignments: []
+			};
+			const res = resolvePostLoginRoute(user);
+			expect(res).toEqual({ type: 'navigate', path: '/admin' });
+		});
+
+		it('redirects unassigned user (0 accessible societies) to /unauthorized', () => {
+			const user = {
+				id: 'u-unassigned',
 				phone: '+91 9999xxxx01',
+				status: 'ACTIVE',
+				platform_roles: [],
+				society_assignments: []
+			};
+			const res = resolvePostLoginRoute(user);
+			expect(res).toEqual({ type: 'unauthorized', reason: 'NO_ACCESSIBLE_SOCIETIES' });
+		});
+
+		it('navigates directly to society overview when exactly 1 society is accessible', () => {
+			const user = {
+				id: 'u-soc-admin',
+				phone: '+91 9820xxxx56',
+				status: 'ACTIVE',
+				platform_roles: [],
+				society_assignments: [
+					{
+						society_id: '0a2c153c-32ca-458e-a090-81a4687b7a76',
+						society_code: 'SOC-PUN-GVR202',
+						society_name: 'Greenview Residency',
+						role: 'SOC_ADMIN',
+						status: 'ACTIVE' as const
+					}
+				]
+			};
+			const res = resolvePostLoginRoute(user);
+			expect(res).toEqual({
+				type: 'navigate',
+				path: '/society/0a2c153c-32ca-458e-a090-81a4687b7a76'
+			});
+		});
+
+		it('presents society selector when multiple societies are accessible', () => {
+			const assignments = [
+				{
+					society_id: '0a2c153c-32ca-458e-a090-81a4687b7a76',
+					society_code: 'SOC-PUN-GVR202',
+					society_name: 'Greenview Residency',
+					role: 'SOC_ADMIN',
+					status: 'ACTIVE' as const
+				},
+				{
+					society_id: 'ecd1369f-c49c-45b9-b36d-68e1234f1042',
+					society_code: 'SOC-MUM-SRM101',
+					society_name: 'Shree Ram CHS',
+					role: 'SOC_ADMIN',
+					status: 'ACTIVE' as const
+				}
+			];
+			const user = {
+				id: 'u-multi-soc',
+				phone: '+91 9820xxxx56',
+				status: 'ACTIVE',
+				platform_roles: [],
+				society_assignments: assignments
+			};
+			const res = resolvePostLoginRoute(user);
+			expect(res).toEqual({
+				type: 'select_society',
+				assignments
+			});
+		});
+
+		it('resolves unauthenticated state to unauthorized', () => {
+			const res = resolvePostLoginRoute(null);
+			expect(res).toEqual({ type: 'unauthorized', reason: 'UNAUTHENTICATED' });
+		});
+	});
+
+	describe('Contextual Back Navigation Destination', () => {
+		it('returns /admin for Super Admin', () => {
+			const user = {
+				id: 'u-super',
+				phone: '919967089101',
+				status: 'ACTIVE',
+				platform_roles: ['SUPER_ADMIN']
+			};
+			const dest = getContextualBackDestination(user);
+			expect(dest.href).toBe('/admin');
+			expect(dest.label).toBe('Return to Admin Console');
+		});
+
+		it('returns /admin for Platform Admin', () => {
+			const user = {
+				id: 'u-admin',
+				phone: '918422862001',
+				status: 'ACTIVE',
+				platform_roles: ['ADMIN']
+			};
+			const dest = getContextualBackDestination(user);
+			expect(dest.href).toBe('/admin');
+			expect(dest.label).toBe('Return to Admin Console');
+		});
+
+		it('returns / for ordinary society administrators and members', () => {
+			const user = {
+				id: 'u-soc',
+				phone: '919820000001',
 				status: 'ACTIVE',
 				platform_roles: []
 			};
-			testAuth.isAuthenticated = true;
-
-			expect(auth.isSuperAdmin).toBe(false);
-			const targetRoute = auth.isSuperAdmin ? '/admin' : '/unauthorized';
-			expect(targetRoute).toBe('/unauthorized');
-		});
-
-		it('denies platform administration access to disabled admin', () => {
-			testAuth.user = {
-				id: 'u-disabled',
-				phone: '+91 9820xxxx56',
-				status: 'ACTIVE',
-				platform_roles: [] // Disabled admins lose active platform_roles
-			};
-			testAuth.isAuthenticated = true;
-
-			expect(auth.isSuperAdmin).toBe(false);
-			const targetRoute = auth.isSuperAdmin ? '/admin' : '/unauthorized';
-			expect(targetRoute).toBe('/unauthorized');
+			const dest = getContextualBackDestination(user);
+			expect(dest.href).toBe('/');
+			expect(dest.label).toBe('Return to Home');
 		});
 	});
 
@@ -159,10 +251,10 @@ describe('Frontend Routing & Authentication UX', () => {
 
 			const postSpy = vi.spyOn(api, 'post').mockResolvedValue(mockThirdLoginResponse);
 
-			await auth.verifyOTP('9967089101', '123456');
+			await auth.verifyOTP('919967089101', '123456');
 
 			expect(postSpy).toHaveBeenCalledWith('/auth/otp/verify', {
-				phone: '9967089101',
+				phone: '919967089101',
 				otp: '123456'
 			});
 			expect(auth.isAuthenticated).toBe(true);

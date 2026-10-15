@@ -3,6 +3,7 @@
 	import Badge from '$lib/components/ui/badge.svelte';
 	import { societyApi, type SocietyItem } from '$lib/api/society';
 	import { ApiClientError } from '$lib/api/client';
+	import { normalizePhoneInput } from '$lib/phone';
 	import {
 		Building2,
 		X,
@@ -84,7 +85,7 @@
 				pincode: trimmedPin,
 				registration_number: registrationNumber.trim() || undefined,
 				contact_email: contactEmail.trim() || undefined,
-				contact_phone: contactPhone.trim() || undefined
+				contact_phone: contactPhone.trim() ? normalizePhoneInput(contactPhone) : undefined
 			});
 
 			createdSociety = soc;
@@ -132,27 +133,30 @@
 		<button
 			type="button"
 			tabindex="-1"
-			class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity"
+			class="fixed inset-0 bg-neutral-950/40 backdrop-blur-xs transition-opacity"
 			onclick={() => !isLoading && handleClose()}
 			aria-label="Close dialog overlay"
 		></button>
 
 		<!-- Modal Container -->
 		<div
-			class="relative max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl transition-all"
+			class="relative max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-neutral-200 bg-white p-6 text-neutral-900 shadow-2xl transition-all"
 		>
-			<div class="flex items-center justify-between border-b border-slate-800/80 pb-4">
+			<div class="flex items-center justify-between border-b border-neutral-100 pb-4">
 				<div class="flex items-center gap-2.5">
 					<div
-						class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400"
+						class="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-100 text-neutral-900"
 					>
-						<Building2 class="h-5 w-5" />
+						<Building2 class="h-4 w-4" />
 					</div>
 					<div>
-						<h2 id="register-society-title" class="text-base font-semibold text-slate-100">
+						<h2
+							id="register-society-title"
+							class="text-base font-semibold tracking-tight text-neutral-900"
+						>
 							Register Housing Society
 						</h2>
-						<p class="text-xs text-slate-400">
+						<p class="text-xs text-neutral-500">
 							Provision a new tenant on CHS platform with status PENDING
 						</p>
 					</div>
@@ -161,7 +165,7 @@
 					type="button"
 					onclick={() => !isLoading && handleClose()}
 					disabled={isLoading}
-					class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50"
+					class="rounded-full p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50"
 					aria-label="Close dialog"
 				>
 					<X class="h-4 w-4" />
@@ -172,65 +176,67 @@
 				<!-- Success State Displaying Generated Society Code -->
 				<div class="mt-6 space-y-5 text-center">
 					<div
-						class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-400"
+						class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"
 					>
-						<CheckCircle2 class="h-8 w-8" />
+						<CheckCircle2 class="h-7 w-7" />
 					</div>
 
 					<div>
-						<h3 class="text-base font-bold text-slate-100">Society Registered Successfully!</h3>
-						<p class="mt-1 text-xs text-slate-400">
-							The society has been created in <span class="font-semibold text-amber-400"
+						<h3 class="text-base font-bold text-neutral-900">Society Registered Successfully!</h3>
+						<p class="mt-1 text-xs text-neutral-500">
+							The society has been created in <span class="font-semibold text-amber-700"
 								>PENDING</span
 							> status.
 						</p>
 					</div>
 
-					<div class="rounded-xl border border-indigo-500/30 bg-slate-950/80 p-5 text-left">
-						<div class="text-[11px] font-medium tracking-wider text-slate-400 uppercase">
+					<div class="rounded-2xl border border-neutral-200 bg-neutral-50 p-5 text-left">
+						<div class="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">
 							Generated Society Code
 						</div>
 						<div class="mt-1 flex items-center justify-between">
-							<span class="font-mono text-xl font-bold tracking-wide text-indigo-300">
+							<span class="font-mono text-xl font-bold tracking-wide text-neutral-950">
 								{createdSociety.society_code}
 							</span>
 							<Button
 								variant="outline"
 								size="sm"
 								onclick={copyCode}
-								class="border-indigo-500/40 text-xs"
+								class="border-neutral-300 text-xs hover:bg-neutral-100"
 							>
 								{#if copied}
-									<Check class="mr-1 h-3.5 w-3.5 text-emerald-400" />
-									<span class="text-emerald-400">Copied</span>
+									<Check class="mr-1 h-3.5 w-3.5 text-emerald-600" />
+									<span class="text-emerald-700">Copied</span>
 								{:else}
-									<Copy class="mr-1 h-3.5 w-3.5 text-indigo-400" />
+									<Copy class="mr-1 h-3.5 w-3.5 text-neutral-700" />
 									<span>Copy Code</span>
 								{/if}
 							</Button>
 						</div>
-						<p class="mt-2 text-[11px] text-slate-400">
+						<p class="mt-2 text-[11px] text-neutral-500">
 							This permanent immutable identifier identifies the society across support, audits, and
 							administration.
 						</p>
 					</div>
 
-					<div class="rounded-xl border border-slate-800 bg-slate-950/50 p-4 text-left text-xs">
-						<div class="grid grid-cols-2 gap-2 text-slate-300">
+					<div class="rounded-2xl border border-neutral-200 bg-neutral-50/60 p-4 text-left text-xs">
+						<div class="grid grid-cols-2 gap-2 text-neutral-700">
 							<div>
-								<span class="text-slate-400">Name:</span>
-								<strong>{createdSociety.name}</strong>
+								<span class="text-neutral-500">Name:</span>
+								<strong class="ml-1 text-neutral-900">{createdSociety.name}</strong>
 							</div>
 							<div>
-								<span class="text-slate-400">Location:</span>
-								{createdSociety.city}, {createdSociety.state}
+								<span class="text-neutral-500">Location:</span>
+								<span class="ml-1 text-neutral-800"
+									>{createdSociety.city}, {createdSociety.state}</span
+								>
 							</div>
 							<div>
-								<span class="text-slate-400">PIN Code:</span>
-								{createdSociety.pincode}
+								<span class="text-neutral-500">PIN Code:</span>
+								<span class="ml-1 font-mono text-neutral-800">{createdSociety.pincode}</span>
 							</div>
 							<div>
-								<span class="text-slate-400">Status:</span>
+								<span class="text-neutral-500">Status:</span>
 								<Badge variant="warning">{createdSociety.status}</Badge>
 							</div>
 						</div>
@@ -249,15 +255,15 @@
 					{#if error}
 						<div
 							role="alert"
-							class="flex items-start gap-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300"
+							class="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800"
 						>
-							<AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+							<AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
 							<span>{error}</span>
 						</div>
 					{/if}
 
 					<div>
-						<label for="society-name" class="block text-xs font-medium text-slate-300">
+						<label for="society-name" class="block text-xs font-medium text-neutral-700">
 							Society Name *
 						</label>
 						<input
@@ -267,13 +273,13 @@
 							placeholder="e.g. Gokuldham Co-operative Housing Society"
 							disabled={isLoading}
 							required
-							class="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+							class="mt-1 block w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 placeholder-neutral-400 focus:border-neutral-950 focus:outline-hidden disabled:opacity-50"
 						/>
 					</div>
 
 					<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
 						<div>
-							<label for="society-reg-no" class="block text-xs font-medium text-slate-300">
+							<label for="society-reg-no" class="block text-xs font-medium text-neutral-700">
 								Registration Number (Optional)
 							</label>
 							<input
@@ -282,12 +288,12 @@
 								bind:value={registrationNumber}
 								placeholder="e.g. MUM/CHS/12345/2020"
 								disabled={isLoading}
-								class="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+								class="mt-1 block w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 placeholder-neutral-400 focus:border-neutral-950 focus:outline-hidden disabled:opacity-50"
 							/>
 						</div>
 
 						<div>
-							<label for="society-locality" class="block text-xs font-medium text-slate-300">
+							<label for="society-locality" class="block text-xs font-medium text-neutral-700">
 								Locality / Neighborhood *
 							</label>
 							<input
@@ -297,13 +303,13 @@
 								placeholder="e.g. Film City Road, Goregaon East"
 								disabled={isLoading}
 								required
-								class="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+								class="mt-1 block w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 placeholder-neutral-400 focus:border-neutral-950 focus:outline-hidden disabled:opacity-50"
 							/>
 						</div>
 					</div>
 
 					<div>
-						<label for="society-addr-1" class="block text-xs font-medium text-slate-300">
+						<label for="society-addr-1" class="block text-xs font-medium text-neutral-700">
 							Address Line 1 *
 						</label>
 						<input
@@ -313,12 +319,12 @@
 							placeholder="e.g. Plot No. 10, Sector 14"
 							disabled={isLoading}
 							required
-							class="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+							class="mt-1 block w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 placeholder-neutral-400 focus:border-neutral-950 focus:outline-hidden disabled:opacity-50"
 						/>
 					</div>
 
 					<div>
-						<label for="society-addr-2" class="block text-xs font-medium text-slate-300">
+						<label for="society-addr-2" class="block text-xs font-medium text-neutral-700">
 							Address Line 2 (Optional)
 						</label>
 						<input
@@ -327,13 +333,13 @@
 							bind:value={addressLine2}
 							placeholder="e.g. Near Film City Gate 1"
 							disabled={isLoading}
-							class="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+							class="mt-1 block w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 placeholder-neutral-400 focus:border-neutral-950 focus:outline-hidden disabled:opacity-50"
 						/>
 					</div>
 
 					<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
 						<div>
-							<label for="society-city" class="block text-xs font-medium text-slate-300">
+							<label for="society-city" class="block text-xs font-medium text-neutral-700">
 								City *
 							</label>
 							<input
@@ -343,12 +349,12 @@
 								placeholder="e.g. Mumbai"
 								disabled={isLoading}
 								required
-								class="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+								class="mt-1 block w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 placeholder-neutral-400 focus:border-neutral-950 focus:outline-hidden disabled:opacity-50"
 							/>
 						</div>
 
 						<div>
-							<label for="society-state" class="block text-xs font-medium text-slate-300">
+							<label for="society-state" class="block text-xs font-medium text-neutral-700">
 								State *
 							</label>
 							<input
@@ -358,12 +364,12 @@
 								placeholder="e.g. Maharashtra"
 								disabled={isLoading}
 								required
-								class="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+								class="mt-1 block w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 placeholder-neutral-400 focus:border-neutral-950 focus:outline-hidden disabled:opacity-50"
 							/>
 						</div>
 
 						<div>
-							<label for="society-pincode" class="block text-xs font-medium text-slate-300">
+							<label for="society-pincode" class="block text-xs font-medium text-neutral-700">
 								PIN Code *
 							</label>
 							<input
@@ -375,14 +381,14 @@
 								placeholder="400063"
 								disabled={isLoading}
 								required
-								class="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+								class="mt-1 block w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs text-neutral-900 placeholder-neutral-400 focus:border-neutral-950 focus:outline-hidden disabled:opacity-50"
 							/>
 						</div>
 					</div>
 
 					<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
 						<div>
-							<label for="society-email" class="block text-xs font-medium text-slate-300">
+							<label for="society-email" class="block text-xs font-medium text-neutral-700">
 								Contact Email (Optional)
 							</label>
 							<input
@@ -391,26 +397,35 @@
 								bind:value={contactEmail}
 								placeholder="admin@gokuldham.org"
 								disabled={isLoading}
-								class="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+								class="mt-1 block w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 placeholder-neutral-400 focus:border-neutral-950 focus:outline-hidden disabled:opacity-50"
 							/>
 						</div>
 
 						<div>
-							<label for="society-phone" class="block text-xs font-medium text-slate-300">
+							<label for="society-phone" class="block text-xs font-medium text-neutral-700">
 								Contact Phone (Optional)
 							</label>
-							<input
-								id="society-phone"
-								type="tel"
-								bind:value={contactPhone}
-								placeholder="9820123456"
-								disabled={isLoading}
-								class="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
-							/>
+							<div
+								class="mt-1 flex overflow-hidden rounded-xl border border-neutral-300 bg-white transition-colors focus-within:border-neutral-950"
+							>
+								<span
+									class="inline-flex items-center border-r border-neutral-200 bg-neutral-100 px-2.5 text-xs font-semibold text-neutral-600 select-none"
+								>
+									+
+								</span>
+								<input
+									id="society-phone"
+									type="tel"
+									bind:value={contactPhone}
+									placeholder="919820123456"
+									disabled={isLoading}
+									class="w-full bg-transparent px-3 py-2 font-mono text-xs text-neutral-900 placeholder-neutral-400 focus:outline-hidden disabled:opacity-50"
+								/>
+							</div>
 						</div>
 					</div>
 
-					<div class="flex items-center justify-end gap-3 border-t border-slate-800/80 pt-3">
+					<div class="flex items-center justify-end gap-3 border-t border-neutral-100 pt-3">
 						<Button
 							type="button"
 							variant="ghost"

@@ -1,5 +1,6 @@
 import { api, ApiClientError } from '$lib/api/client';
 import type { UserSocietyAssignment } from '$lib/api/society';
+import { deactivateCurrentDevice } from '$lib/push';
 
 export interface UserProfile {
 	id: string;
@@ -21,6 +22,11 @@ export interface RefreshResult {
 	access_token: string;
 	refresh_token: string;
 	expires_in: number;
+}
+
+export interface SendOTPResult {
+	resend_after_seconds: number;
+	otp?: string;
 }
 
 // In-memory reactive authentication state for SvelteKit 5
@@ -50,6 +56,9 @@ class AuthStore {
 
 	openLogin() {
 		this.isLoginOpen = true;
+		if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+			window.location.href = '/login';
+		}
 	}
 
 	closeLogin() {
@@ -88,21 +97,25 @@ class AuthStore {
 		this.sessionReplaced = false;
 	}
 
-	async sendOTP(phone: string): Promise<number> {
+	async sendOTP(phone: string): Promise<SendOTPResult> {
 		this.error = null;
-		const res = await api.post<{ resend_after_seconds: number }>('/auth/otp/send', {
-			phone
+		const cleanPhone = phone.replace(/\D/g, '');
+		const normalized = cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone;
+		const res = await api.post<SendOTPResult>('/auth/otp/send', {
+			phone: normalized
 		});
-		return res.resend_after_seconds;
+		return res;
 	}
 
 	async verifyOTP(phone: string, otp: string): Promise<AuthVerifyResult> {
 		this.error = null;
 		this.isLoading = true;
+		const cleanPhone = phone.replace(/\D/g, '');
+		const normalized = cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone;
 		try {
 			const res = await api.post<AuthVerifyResult>('/auth/otp/verify', {
-				phone,
-				otp
+				phone: normalized,
+				otp: otp.trim()
 			});
 
 			this.setTokens(res.access_token, res.refresh_token);
@@ -153,6 +166,11 @@ class AuthStore {
 	}
 
 	async logout(): Promise<void> {
+		try {
+			await deactivateCurrentDevice();
+		} catch {
+			// Ignore device deactivation failure
+		}
 		try {
 			await api.post('/auth/logout');
 		} catch {

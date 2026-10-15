@@ -30,13 +30,36 @@ CREATE TABLE IF NOT EXISTS society_members (
     phone TEXT NOT NULL,
     email TEXT NULL,
     status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'LEFT')),
+    departure_reason_code TEXT NULL,
+    departure_reason_details TEXT NULL,
+    departed_at TIMESTAMPTZ NULL,
     emergency_contact_name TEXT NULL,
     emergency_contact_phone TEXT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- Composite uniqueness for composite foreign key references
-    CONSTRAINT society_members_id_society_uq UNIQUE (id, society_id)
+    CONSTRAINT society_members_id_society_uq UNIQUE (id, society_id),
+
+    -- Departure reason constraints
+    CONSTRAINT chk_society_members_departure_reason CHECK (
+        departure_reason_code IS NULL OR departure_reason_code IN (
+            'TENANT_MOVED_OUT',
+            'LEASE_EXPIRED',
+            'OWNERSHIP_TRANSFERRED',
+            'MEMBER_RELOCATED',
+            'FAMILY_MEMBER_DEPARTED',
+            'MEMBERSHIP_TERMINATED',
+            'DECEASED',
+            'OTHER'
+        )
+    ),
+    CONSTRAINT chk_society_members_departure_other_details CHECK (
+        departure_reason_code != 'OTHER' OR (departure_reason_details IS NOT NULL AND TRIM(departure_reason_details) != '')
+    ),
+    CONSTRAINT chk_society_members_departure_details_len CHECK (
+        departure_reason_details IS NULL OR length(departure_reason_details) <= 500
+    )
 );
 
 -- Partial Unique Index: Prevent duplicate active members with same phone in same society

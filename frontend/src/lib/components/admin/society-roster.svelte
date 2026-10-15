@@ -164,24 +164,24 @@
 			<!-- Search Form -->
 			<form onsubmit={handleSearch} class="relative flex items-center">
 				<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-					<Search class="h-3.5 w-3.5 text-slate-400" />
+					<Search class="h-3.5 w-3.5 text-neutral-400" />
 				</div>
 				<input
 					type="text"
 					bind:value={searchInput}
 					placeholder="Search by name or code..."
-					class="w-48 rounded-lg border border-slate-700 bg-slate-900 py-1.5 pr-2.5 pl-9 text-xs text-slate-200 placeholder-slate-500 focus:border-indigo-500 focus:outline-none sm:w-60"
+					class="w-48 rounded-full border border-neutral-300 bg-white py-1.5 pr-3 pl-9 text-xs text-neutral-900 placeholder-neutral-400 focus:border-neutral-950 focus:outline-none sm:w-60"
 				/>
 			</form>
 
-			<div class="flex items-center gap-1.5 text-xs text-slate-400">
+			<div class="flex items-center gap-1.5 text-xs text-neutral-400">
 				<Filter class="h-3.5 w-3.5" />
 			</div>
 			<select
 				bind:value={statusFilter}
 				onchange={handleFilterChange}
 				aria-label="Filter societies by status"
-				class="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
+				class="rounded-full border border-neutral-300 bg-white px-3 py-1.5 text-xs text-neutral-900 focus:border-neutral-950 focus:outline-none"
 			>
 				<option value="">All Statuses</option>
 				<option value="PENDING">PENDING</option>
@@ -212,33 +212,33 @@
 	<!-- Content State -->
 	{#if isLoading && societies.length === 0}
 		<div
-			class="flex flex-col items-center justify-center rounded-xl border border-slate-800 bg-slate-900/50 p-12 text-center"
+			class="flex flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-neutral-50/50 p-12 text-center"
 		>
-			<Loader2 class="h-8 w-8 animate-spin text-indigo-400" />
-			<p class="mt-3 text-xs text-slate-400">Loading societies...</p>
+			<Loader2 class="h-8 w-8 animate-spin text-neutral-800" />
+			<p class="mt-3 text-xs text-neutral-500">Loading societies...</p>
 		</div>
 	{:else if error}
 		<div
 			role="alert"
-			class="flex items-center justify-between rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300"
+			class="flex items-center justify-between rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-700"
 		>
 			<div class="flex items-center gap-2">
-				<AlertCircle class="h-4 w-4 shrink-0 text-rose-400" />
+				<AlertCircle class="h-4 w-4 shrink-0 text-rose-500" />
 				<span>{error}</span>
 			</div>
 			<Button variant="outline" size="sm" onclick={() => loadSocieties()}>Retry</Button>
 		</div>
 	{:else if societies.length === 0}
 		<div
-			class="flex flex-col items-center justify-center rounded-xl border border-slate-800 bg-slate-900/50 p-12 text-center"
+			class="flex flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-neutral-50/50 p-12 text-center"
 		>
 			<div
-				class="flex h-12 w-12 items-center justify-center rounded-full bg-slate-800 text-slate-400"
+				class="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-200 text-neutral-600"
 			>
 				<Building2 class="h-6 w-6" />
 			</div>
-			<h3 class="mt-3 text-sm font-semibold text-slate-200">No Societies Found</h3>
-			<p class="mt-1 max-w-sm text-xs text-slate-400">
+			<h3 class="mt-3 text-sm font-semibold text-neutral-900">No Societies Found</h3>
+			<p class="mt-1 max-w-sm text-xs text-neutral-500">
 				No housing societies match the filter criteria. Register a new society or adjust your search
 				filters.
 			</p>
@@ -248,36 +248,38 @@
 		</div>
 	{:else}
 		<!-- Table Layout -->
-		<div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/80 shadow-sm">
-			<table class="w-full text-left text-xs text-slate-300">
+		<div class="overflow-x-auto rounded-2xl border border-neutral-200 bg-white shadow-xs">
+			<table class="w-full text-left text-xs text-neutral-700">
 				<thead
-					class="border-b border-slate-800 bg-slate-950/60 text-[11px] font-semibold tracking-wider text-slate-400 uppercase"
+					class="border-b border-neutral-200 bg-neutral-50/80 text-[11px] font-semibold tracking-wider text-neutral-500 uppercase"
 				>
 					<tr>
-						<th scope="col" class="px-4 py-3">Society Code</th>
-						<th scope="col" class="px-4 py-3">Society Name</th>
-						<th scope="col" class="px-4 py-3">Location</th>
-						<th scope="col" class="px-4 py-3">Status</th>
-						<th scope="col" class="px-4 py-3">Created</th>
-						<th scope="col" class="px-4 py-3 text-right">Actions</th>
+						<th scope="col" class="px-4 py-3.5">Society Code</th>
+						<th scope="col" class="px-4 py-3.5">Society Name</th>
+						<th scope="col" class="px-4 py-3.5">Location</th>
+						<th scope="col" class="px-4 py-3.5">Status</th>
+						<th scope="col" class="px-4 py-3.5">Created</th>
+						<th scope="col" class="px-4 py-3.5 text-right">Actions</th>
 					</tr>
 				</thead>
-				<tbody class="divide-y divide-slate-800/60 font-sans">
+				<tbody class="divide-y divide-neutral-100 font-sans">
 					{#each societies as item (item.id)}
-						<tr class="transition-colors hover:bg-slate-800/30">
+						<tr class="transition-colors hover:bg-neutral-50/60">
 							<!-- Society Code (Prominent & Copyable) -->
-							<td class="px-4 py-3 font-mono font-bold whitespace-nowrap text-indigo-300">
+							<td class="px-4 py-3 font-mono font-bold whitespace-nowrap text-neutral-950">
 								<div class="flex items-center gap-1.5">
-									<span>{item.society_code}</span>
+									<span class="rounded bg-neutral-100 px-1.5 py-0.5 text-neutral-900"
+										>{item.society_code}</span
+									>
 									<button
 										type="button"
 										onclick={() => copyCode(item.society_code)}
 										title="Copy code"
 										aria-label="Copy code {item.society_code}"
-										class="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+										class="cursor-pointer rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-800"
 									>
 										{#if copiedCode === item.society_code}
-											<Check class="h-3 w-3 text-emerald-400" />
+											<Check class="h-3 w-3 text-emerald-600" />
 										{:else}
 											<Copy class="h-3 w-3" />
 										{/if}
@@ -286,10 +288,10 @@
 							</td>
 
 							<!-- Name -->
-							<td class="px-4 py-3 font-medium text-slate-200">
+							<td class="px-4 py-3 font-medium text-neutral-900">
 								<a
 									href={`/society/${item.id}`}
-									class="inline-block max-w-xs truncate transition-colors hover:text-indigo-400 hover:underline"
+									class="inline-block max-w-xs truncate transition-colors hover:text-neutral-950 hover:underline"
 									title="Open {item.name} Console"
 								>
 									{item.name}
@@ -297,7 +299,7 @@
 							</td>
 
 							<!-- Location -->
-							<td class="px-4 py-3 whitespace-nowrap text-slate-300">
+							<td class="px-4 py-3 whitespace-nowrap text-neutral-600">
 								{item.city}, {item.state}
 							</td>
 
@@ -309,7 +311,7 @@
 							</td>
 
 							<!-- Created Date -->
-							<td class="px-4 py-3 whitespace-nowrap text-slate-400">
+							<td class="px-4 py-3 whitespace-nowrap text-neutral-500">
 								{formatDate(item.created_at)}
 							</td>
 
@@ -320,7 +322,7 @@
 										<Button
 											variant="ghost"
 											size="sm"
-											class="p-1.5 text-indigo-400 hover:bg-indigo-500/10 hover:text-indigo-300"
+											class="p-1.5 text-neutral-700 hover:bg-neutral-100 hover:text-neutral-950"
 											title="Formation & Structure"
 											aria-label="Formation & Structure for {item.name}"
 											onclick={() => openFormation(item)}
@@ -332,7 +334,7 @@
 									<Button
 										variant="ghost"
 										size="sm"
-										class="p-1.5 text-slate-400 hover:text-slate-200"
+										class="p-1.5 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950"
 										title="View Details"
 										aria-label="View Details for {item.name}"
 										onclick={() => openDetails(item)}
@@ -343,7 +345,7 @@
 									<Button
 										variant="ghost"
 										size="sm"
-										class="p-1.5 text-slate-400 hover:text-slate-200"
+										class="p-1.5 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950"
 										title="Edit Profile"
 										aria-label="Edit Profile for {item.name}"
 										onclick={() => openEdit(item)}
@@ -355,7 +357,7 @@
 										<Button
 											variant="outline"
 											size="sm"
-											class="border-emerald-500/30 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10"
+											class="border-emerald-200 py-1 text-xs text-emerald-800 hover:bg-emerald-50"
 											onclick={() => openStatus(item, 'ACTIVE')}
 										>
 											<CheckCircle2 class="mr-1 h-3 w-3" />
@@ -365,7 +367,7 @@
 										<Button
 											variant="outline"
 											size="sm"
-											class="border-rose-500/30 py-1 text-xs text-rose-300 hover:bg-rose-500/10"
+											class="border-rose-200 py-1 text-xs text-rose-700 hover:bg-rose-50"
 											onclick={() => openStatus(item, 'SUSPENDED')}
 										>
 											<ShieldAlert class="mr-1 h-3 w-3" />
@@ -375,7 +377,7 @@
 										<Button
 											variant="outline"
 											size="sm"
-											class="border-indigo-500/30 py-1 text-xs text-indigo-300 hover:bg-indigo-500/10"
+											class="border-neutral-300 py-1 text-xs text-neutral-800 hover:bg-neutral-100"
 											onclick={() => openStatus(item, 'ACTIVE')}
 										>
 											<CheckCircle2 class="mr-1 h-3 w-3" />
@@ -392,12 +394,12 @@
 
 		<!-- Pagination Footer -->
 		<div
-			class="flex flex-col gap-3 pt-2 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between"
+			class="flex flex-col gap-3 pt-2 text-xs text-neutral-500 sm:flex-row sm:items-center sm:justify-between"
 		>
 			<div>
-				Showing <span class="font-medium text-slate-200">{offset + 1}</span> to
-				<span class="font-medium text-slate-200">{Math.min(offset + limit, total)}</span> of
-				<span class="font-medium text-slate-200">{total}</span> societies
+				Showing <span class="font-medium text-neutral-900">{offset + 1}</span> to
+				<span class="font-medium text-neutral-900">{Math.min(offset + limit, total)}</span> of
+				<span class="font-medium text-neutral-900">{total}</span> societies
 			</div>
 			<div class="flex items-center gap-2">
 				<Button
@@ -410,7 +412,7 @@
 					<ChevronLeft class="mr-1 h-3.5 w-3.5" />
 					<span>Previous</span>
 				</Button>
-				<span class="px-2 font-mono text-xs">
+				<span class="px-2 font-mono text-xs text-neutral-700">
 					{currentPage} / {totalPages}
 				</span>
 				<Button

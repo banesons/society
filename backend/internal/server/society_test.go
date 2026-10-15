@@ -79,7 +79,7 @@ func TestSocietyAPI(t *testing.T) {
 	var ordinaryUserID uuid.UUID
 	err = db.Pool().QueryRow(ctx, `
 		INSERT INTO users (phone, status)
-		VALUES ('+919999000001', 'ACTIVE')
+		VALUES ('919999000001', 'ACTIVE')
 		ON CONFLICT (phone) DO UPDATE SET status = 'ACTIVE'
 		RETURNING id
 	`).Scan(&ordinaryUserID)
@@ -92,7 +92,7 @@ func TestSocietyAPI(t *testing.T) {
 	var adminUserID uuid.UUID
 	err = db.Pool().QueryRow(ctx, `
 		INSERT INTO users (phone, status)
-		VALUES ('+919999000002', 'ACTIVE')
+		VALUES ('919999000002', 'ACTIVE')
 		ON CONFLICT (phone) DO UPDATE SET status = 'ACTIVE'
 		RETURNING id
 	`).Scan(&adminUserID)

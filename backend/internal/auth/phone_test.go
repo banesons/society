@@ -14,43 +14,43 @@ func TestNormalizePhone(t *testing.T) {
 		{
 			name:      "10 digits standard",
 			input:     "9967089101",
-			expected:  "+919967089101",
+			expected:  "919967089101",
 			expectErr: false,
 		},
 		{
 			name:      "leading zero 11 digits",
 			input:     "09967089101",
-			expected:  "+919967089101",
+			expected:  "919967089101",
 			expectErr: false,
 		},
 		{
 			name:      "already E.164 with plus",
 			input:     "+919967089101",
-			expected:  "+919967089101",
+			expected:  "919967089101",
 			expectErr: false,
 		},
 		{
 			name:      "hyphens and spaces",
 			input:     "+91-9967-089-101",
-			expected:  "+919967089101",
+			expected:  "919967089101",
 			expectErr: false,
 		},
 		{
 			name:      "parentheses formatting",
 			input:     "+91 (9967) 089101",
-			expected:  "+919967089101",
+			expected:  "919967089101",
 			expectErr: false,
 		},
 		{
 			name:      "91 prefix without plus 12 digits",
 			input:     "919967089101",
-			expected:  "+919967089101",
+			expected:  "919967089101",
 			expectErr: false,
 		},
 		{
-			name:      "second test number +918422862001",
+			name:      "second test number 918422862001",
 			input:     "8422862001",
-			expected:  "+918422862001",
+			expected:  "918422862001",
 			expectErr: false,
 		},
 		{
@@ -110,12 +110,12 @@ func TestMaskPhone(t *testing.T) {
 		expected string
 	}{
 		{
-			input:    "+919967089101",
-			expected: "+91 9967xxxx01",
+			input:    "919967089101",
+			expected: "919967089101",
 		},
 		{
-			input:    "+918422862001",
-			expected: "+91 8422xxxx01",
+			input:    "+919967089101",
+			expected: "919967089101",
 		},
 	}
 

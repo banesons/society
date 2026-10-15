@@ -174,6 +174,40 @@ export class ApiClient {
 	delete<T>(path: string, options?: RequestOptions): Promise<T> {
 		return this.request<T>(path, { ...options, method: 'DELETE' });
 	}
+
+	async requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+		const cleanBase = this.baseUrl.replace(/\/+$/, '');
+		const cleanPath = path.replace(/^\/+/, '');
+		const url = new URL(`${cleanBase}/${cleanPath}`);
+
+		if (options.params) {
+			for (const [key, value] of Object.entries(options.params)) {
+				if (value !== undefined) {
+					url.searchParams.append(key, String(value));
+				}
+			}
+		}
+
+		const headers = new Headers(options.headers);
+		if (this.accessToken && !headers.has('Authorization')) {
+			headers.set('Authorization', `Bearer ${this.accessToken}`);
+		}
+		const requestId = headers.get('X-Request-ID') || this.generateRequestId();
+		headers.set('X-Request-ID', requestId);
+
+		const response = await fetch(url.toString(), { ...options, headers });
+		if (!response.ok) {
+			let errorMsg = `Download failed with status ${response.status}`;
+			try {
+				const json = await response.json();
+				if (json?.error?.message) errorMsg = json.error.message;
+			} catch {
+				// Non-json error
+			}
+			throw new ApiClientError(errorMsg, 'DOWNLOAD_FAILED', response.status, requestId);
+		}
+		return await response.blob();
+	}
 }
 
 // Global singleton client instance

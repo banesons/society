@@ -33,9 +33,9 @@ describe('AuthStore', () => {
 	it('sendOTP calls api.post with phone and returns cooldown', async () => {
 		const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ resend_after_seconds: 60 });
 
-		const resend = await auth.sendOTP('+919967089101');
-		expect(resend).toBe(60);
-		expect(postSpy).toHaveBeenCalledWith('/auth/otp/send', { phone: '+919967089101' });
+		const res = await auth.sendOTP('919967089101');
+		expect(res.resend_after_seconds).toBe(60);
+		expect(postSpy).toHaveBeenCalledWith('/auth/otp/send', { phone: '919967089101' });
 	});
 
 	it('verifyOTP sets user profile and marks authenticated', async () => {
@@ -45,14 +45,14 @@ describe('AuthStore', () => {
 			expires_in: 900,
 			user: {
 				id: 'usr-123',
-				phone: '+91 9967xxxx01',
+				phone: '919967089101',
 				status: 'ACTIVE'
 			}
 		};
 
 		vi.spyOn(api, 'post').mockResolvedValue(mockResult);
 
-		await auth.verifyOTP('+919967089101', '123456');
+		await auth.verifyOTP('919967089101', '123456');
 
 		expect(auth.isAuthenticated).toBe(true);
 		expect(auth.user).toEqual(mockResult.user);
@@ -66,7 +66,7 @@ describe('AuthStore', () => {
 			expires_in: 900,
 			user: {
 				id: 'usr-123',
-				phone: '+91 9967xxxx01',
+				phone: '919967089101',
 				status: 'ACTIVE'
 			},
 			session_replaced: true
@@ -74,7 +74,7 @@ describe('AuthStore', () => {
 
 		vi.spyOn(api, 'post').mockResolvedValue(mockResult);
 
-		await auth.verifyOTP('+919967089101', '123456');
+		await auth.verifyOTP('919967089101', '123456');
 
 		expect(auth.isAuthenticated).toBe(true);
 		expect(auth.sessionReplaced).toBe(true);
@@ -88,7 +88,7 @@ describe('AuthStore', () => {
 		const postSpy = vi.spyOn(api, 'post').mockResolvedValue({});
 
 		// Set active state
-		testAuth.user = { id: '1', phone: '+91 9967xxxx01', status: 'ACTIVE' };
+		testAuth.user = { id: '1', phone: '919967089101', status: 'ACTIVE' };
 		testAuth.isAuthenticated = true;
 		auth.sessionReplaced = true;
 

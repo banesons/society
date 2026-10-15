@@ -41,7 +41,7 @@ func TestPlatformDatabaseIntegration(t *testing.T) {
 
 	// 1. Test Super Admin Bootstrap
 	t.Run("BootstrapSuperAdmin is idempotent and does not overwrite", func(t *testing.T) {
-		testSuperAdminPhone := "+919967089101"
+		testSuperAdminPhone := "919967089101"
 
 		role1, err := repo.BootstrapSuperAdmin(ctx, testSuperAdminPhone)
 		if err != nil {
@@ -70,7 +70,7 @@ func TestPlatformDatabaseIntegration(t *testing.T) {
 		var testUserID uuid.UUID
 		err := pool.QueryRow(ctx, `
 			INSERT INTO users (phone, status)
-			VALUES ('+919111222333', 'ACTIVE')
+			VALUES ('919111222333', 'ACTIVE')
 			ON CONFLICT (phone) DO UPDATE SET status = 'ACTIVE'
 			RETURNING id
 		`).Scan(&testUserID)
@@ -143,7 +143,7 @@ func TestPlatformDatabaseIntegration(t *testing.T) {
 		var targetUserID uuid.UUID
 		err = pool.QueryRow(ctx, `
 			INSERT INTO users (phone, status)
-			VALUES ('+919444555666', 'ACTIVE')
+			VALUES ('919444555666', 'ACTIVE')
 			ON CONFLICT (phone) DO UPDATE SET status = 'ACTIVE'
 			RETURNING id
 		`).Scan(&targetUserID)
@@ -202,7 +202,7 @@ func TestPlatformDatabaseIntegration(t *testing.T) {
 		var candidateUserID uuid.UUID
 		err := pool.QueryRow(ctx, `
 			INSERT INTO users (phone, status)
-			VALUES ('+919999888777', 'ACTIVE')
+			VALUES ('919999888777', 'ACTIVE')
 			ON CONFLICT (phone) DO UPDATE SET status = 'ACTIVE'
 			RETURNING id
 		`).Scan(&candidateUserID)
@@ -216,7 +216,7 @@ func TestPlatformDatabaseIntegration(t *testing.T) {
 		// Attempt CreateAdmin with non-existent actorID to trigger FK violation during audit log write
 		// Note: CreateAdmin inserts platform_roles first, then platform_audit_logs with actor_id
 		// If audit insert fails due to FK violation, the transaction MUST rollback and platform_roles MUST NOT exist
-		_, err = repo.CreateAdmin(ctx, nonExistentActorID, "+919999888777", "127.0.0.1", "test-agent")
+		_, err = repo.CreateAdmin(ctx, nonExistentActorID, "919999888777", "127.0.0.1", "test-agent")
 		if err == nil {
 			t.Fatalf("expected error due to invalid actor_id in audit log, got nil")
 		}

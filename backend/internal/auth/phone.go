@@ -8,24 +8,24 @@ import (
 )
 
 var (
-	// ErrInvalidPhone indicates the phone number could not be normalized to Indian E.164 format.
+	// ErrInvalidPhone indicates the phone number could not be normalized to Indian numeric format.
 	ErrInvalidPhone = errors.New("invalid Indian mobile phone number")
 
-	// Canonical Indian mobile regex: +91 followed by 10 digits starting with 6, 7, 8, or 9
-	e164IndianRegex = regexp.MustCompile(`^\+91[6-9]\d{9}$`)
+	// Canonical Indian mobile regex: 91 followed by 10 digits starting with 6, 7, 8, or 9 (pure digits, no +)
+	numericIndianRegex = regexp.MustCompile(`^91[6-9]\d{9}$`)
 )
 
-// NormalizePhone cleans, standardizes, and validates an Indian mobile number into canonical E.164 format (+91XXXXXXXXXX).
+// NormalizePhone cleans, standardizes, trims, and validates an Indian mobile number into pure numeric digits (91XXXXXXXXXX).
+// Removes '+', spaces, dashes, parentheses, dots.
 func NormalizePhone(input string) (string, error) {
-	if strings.TrimSpace(input) == "" {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
 		return "", ErrInvalidPhone
 	}
 
-	// Step 1: Strip whitespace, hyphens, parentheses, dots, and formatting characters
+	// Step 1: Strip whitespace, hyphens, parentheses, dots, '+' and formatting characters
 	var digitsOnly strings.Builder
-	hasLeadingPlus := strings.HasPrefix(strings.TrimSpace(input), "+")
-
-	for _, ch := range input {
+	for _, ch := range trimmed {
 		if unicode.IsDigit(ch) {
 			digitsOnly.WriteRune(ch)
 		}
@@ -39,12 +39,8 @@ func NormalizePhone(input string) (string, error) {
 	// Step 2: Handle prefixes
 	var nationalNumber string
 
-	if hasLeadingPlus || strings.HasPrefix(raw, "91") && len(raw) == 12 {
-		if strings.HasPrefix(raw, "91") && len(raw) == 12 {
-			nationalNumber = raw[2:]
-		} else {
-			nationalNumber = raw
-		}
+	if strings.HasPrefix(raw, "91") && len(raw) == 12 {
+		nationalNumber = raw[2:]
 	} else if strings.HasPrefix(raw, "0") && len(raw) == 11 {
 		// Strip leading 0 (e.g. 09967089101 -> 9967089101)
 		nationalNumber = raw[1:]
@@ -59,35 +55,42 @@ func NormalizePhone(input string) (string, error) {
 		return "", ErrInvalidPhone
 	}
 
-	canonical := "+91" + nationalNumber
+	canonical := "91" + nationalNumber
 
-	if !e164IndianRegex.MatchString(canonical) {
+	if !numericIndianRegex.MatchString(canonical) {
 		return "", ErrInvalidPhone
 	}
 
 	return canonical, nil
 }
 
-// MaskPhone returns a PII-safe representation of the canonical phone number.
-// Example: +919967089101 -> +91 9967xxxx01
+// MaskPhone returns the phone number (pure digits or formatted for visibility as requested by user).
 func MaskPhone(phone string) string {
-	if len(phone) < 13 || !strings.HasPrefix(phone, "+91") {
-		// Fallback masking if non-standard
-		if len(phone) >= 4 {
-			return phone[:2] + "****" + phone[len(phone)-2:]
+	digits := ""
+	for _, ch := range phone {
+		if unicode.IsDigit(ch) {
+			digits += string(ch)
 		}
-		return "****"
 	}
+	if len(digits) == 12 && strings.HasPrefix(digits, "91") {
+		return digits
+	}
+	if len(digits) == 10 {
+		return "91" + digits
+	}
+	return phone
+}
 
-	// Canonical format: +91 (3 chars) + 10 digits
-	// Example: +919967089101
-	// Country: +91
-	// Prefix: 9967 (first 4 digits of 10)
-	// Mask: xxxx (middle 4 digits)
-	// Suffix: 01 (last 2 digits)
-	country := phone[:3]           // +91
-	prefix := phone[3:7]           // 9967
-	suffix := phone[len(phone)-2:] // 01
-
-	return country + " " + prefix + "xxxx" + suffix
+// FormatDisplayPhone formats a numeric phone (e.g. 919967089101) with visual + prefix: +91 9967089101.
+func FormatDisplayPhone(phone string) string {
+	digits := ""
+	for _, ch := range phone {
+		if unicode.IsDigit(ch) {
+			digits += string(ch)
+		}
+	}
+	if len(digits) == 12 && strings.HasPrefix(digits, "91") {
+		return "+91 " + digits[2:]
+	}
+	return phone
 }

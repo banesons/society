@@ -1,48 +1,100 @@
-# Environment & Secrets (NEVER COMMIT)
+# ==============================================================================
+# Git Ignore Configuration for CHS Neu Monorepo (Society Management Platform)
+# Frontend (SvelteKit) | Backend (Go) | Supabase Migrations | Documentation
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Environment & Secrets (CRITICAL: NEVER COMMIT SECRETS)
+# ------------------------------------------------------------------------------
 .env
-*.env
+.env.*
 !.env.example
 *.local
 *.pem
 *.key
 *.cert
+*.crt
+*service-account*.json
+chsneu-*.json
+*.credentials.json
+firebase-service-account*.json
+client_secrets*.json
 
-# Operating System
+# ------------------------------------------------------------------------------
+# 2. Operating System & Filesystem
+# ------------------------------------------------------------------------------
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# Supabase CLI Local Cache
-supabase/.temp/
-
-# Go Build Artifacts
+# ------------------------------------------------------------------------------
+# 3. Go Backend Artifacts
+# ------------------------------------------------------------------------------
 backend/bin/
 backend/dist/
 backend/api
+bin/
+dist/
 *.exe
 *.test
 *.out
+__debug_bin*
+*.prof
 
-# Node / SvelteKit Build Artifacts
+# ------------------------------------------------------------------------------
+# 4. Node & SvelteKit Frontend Artifacts
+# ------------------------------------------------------------------------------
 node_modules/
 frontend/node_modules/
 frontend/.svelte-kit/
+.svelte-kit/
 frontend/build/
+build/
 frontend/.vercel/
+.vercel/
 frontend/.output/
+.output/
 *.tsbuildinfo
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
 
-# IDE & Editors
+# ------------------------------------------------------------------------------
+# 5. Supabase CLI Local Cache
+# ------------------------------------------------------------------------------
+supabase/.temp/
+supabase/.branches/
+
+# ------------------------------------------------------------------------------
+# 6. IDE, Editors & Development Tools
+# ------------------------------------------------------------------------------
 .vscode/
 .idea/
+*.sublime-project
+*.sublime-workspace
 *.swp
 *.swo
+*~
 
-# Logs
+# ------------------------------------------------------------------------------
+# 7. Logs & Temporary Files
+# ------------------------------------------------------------------------------
 *.log
 npm-debug.log*
 yarn-debug.log*
+yarn-error.log*
 pnpm-debug.log*
+*.tmp
+*.temp
 
-# Test Coverage
+# ------------------------------------------------------------------------------
+# 8. Test Artifacts & Coverage Reports
+# ------------------------------------------------------------------------------
 coverage/
 *.lcov
+test_doc_*.pdf
+test-*.pdf
+test_*.pdf

@@ -1,1 +1,49 @@
 @import 'tailwindcss';
+
+@theme {
+	--font-sans: 'Hedvig Letters Sans', 'Hedvig Letters Serif', sans-serif;
+	--font-serif: 'Hedvig Letters Serif', serif;
+}
+
+:root {
+	font-family: 'Hedvig Letters Sans', 'Hedvig Letters Serif', sans-serif;
+	color-scheme: light;
+}
+
+body {
+	background-color: #f3f3f1;
+	color: #121212;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	text-rendering: optimizeLegibility;
+}
+
+::selection {
+	background-color: #121212;
+	color: #f3f3f1;
+}
+
+/* Custom editorial link underline effect */
+.editorial-link {
+	position: relative;
+	display: inline-block;
+	text-decoration: none;
+}
+
+.editorial-link::after {
+	content: '';
+	position: absolute;
+	left: 0;
+	bottom: -2px;
+	width: 100%;
+	height: 1.5px;
+	background-color: currentColor;
+	transition:
+		transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+		opacity 0.25s ease;
+	transform-origin: left;
+}
+
+.editorial-link:hover::after {
+	transform: scaleX(1.05);
+}
