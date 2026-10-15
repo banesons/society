@@ -32,6 +32,8 @@ func Authenticate(tm *auth.TokenManager, validator auth.SessionValidator) func(h
 			}
 
 			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+			tokenStr = strings.TrimSpace(tokenStr)
+			tokenStr = strings.Trim(tokenStr, `"'`)
 			claims, err := tm.ValidateAccessToken(tokenStr)
 			if err != nil {
 				code := "INVALID_TOKEN"

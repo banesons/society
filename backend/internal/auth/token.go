@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -40,8 +41,19 @@ type TokenManager struct {
 // NewTokenManager initializes the TokenManager from an optional base64 private key string,
 // or generates an ephemeral in-memory Ed25519 keypair if none is supplied (ideal for development).
 func NewTokenManager(privateKeyB64 string) (*TokenManager, error) {
+	privateKeyB64 = strings.TrimSpace(privateKeyB64)
+	privateKeyB64 = strings.Trim(privateKeyB64, `"'`)
 	if privateKeyB64 != "" {
 		keyBytes, err := base64.StdEncoding.DecodeString(privateKeyB64)
+		if err != nil {
+			keyBytes, err = base64.RawStdEncoding.DecodeString(privateKeyB64)
+		}
+		if err != nil {
+			keyBytes, err = base64.URLEncoding.DecodeString(privateKeyB64)
+		}
+		if err != nil {
+			keyBytes, err = base64.RawURLEncoding.DecodeString(privateKeyB64)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode base64 JWT private key: %w", err)
 		}
@@ -89,6 +101,8 @@ func (tm *TokenManager) GenerateAccessToken(userID, sessionID uuid.UUID) (string
 
 // ValidateAccessToken verifies the token signature, algorithm, and claims.
 func (tm *TokenManager) ValidateAccessToken(tokenStr string) (*Claims, error) {
+	tokenStr = strings.TrimSpace(tokenStr)
+	tokenStr = strings.Trim(tokenStr, `"'`)
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
 		// Strict algorithm enforcement: must be EdDSA
 		if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {
