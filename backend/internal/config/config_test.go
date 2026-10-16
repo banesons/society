@@ -31,6 +31,17 @@ func TestConfigValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("production requires JWT_PRIVATE_KEY", func(t *testing.T) {
+		cfg := &Config{
+			Env:           "production",
+			DatabaseURL:   "postgres://prod-db",
+			JWTPrivateKey: "",
+		}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "JWT_PRIVATE_KEY is required in production") {
+			t.Fatalf("expected JWT_PRIVATE_KEY required error, got: %v", err)
+		}
+	})
+
 	t.Run("production requires valid 64-byte Ed25519 JWT_PRIVATE_KEY", func(t *testing.T) {
 		cfg := &Config{
 			Env:           "production",

@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -74,6 +77,62 @@ func TestTokenManager(t *testing.T) {
 		_, err := tm.ValidateAccessToken("invalid.token.payload")
 		if err != ErrInvalidToken {
 			t.Errorf("expected ErrInvalidToken, got %v", err)
+		}
+	})
+}
+
+func TestCheckKeyConsistency(t *testing.T) {
+	t.Run("supports 64-byte ed25519 private key", func(t *testing.T) {
+		_, priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatalf("failed to generate key: %v", err)
+		}
+		keyB64 := base64.StdEncoding.EncodeToString(priv)
+		tm, err := NewTokenManager(keyB64)
+		if err != nil {
+			t.Fatalf("failed to init tm: %v", err)
+		}
+
+		userID := uuid.New()
+		sessionID := uuid.New()
+		tokenStr, err := tm.GenerateAccessToken(userID, sessionID)
+		if err != nil {
+			t.Fatalf("failed to generate: %v", err)
+		}
+
+		claims, err := tm.ValidateAccessToken(tokenStr)
+		if err != nil {
+			t.Fatalf("VALIDATION FAILED: %v", err)
+		}
+		if claims.Subject != userID.String() {
+			t.Errorf("expected subject %s, got %s", userID.String(), claims.Subject)
+		}
+	})
+
+	t.Run("supports 32-byte seed", func(t *testing.T) {
+		seed := make([]byte, ed25519.SeedSize)
+		if _, err := rand.Read(seed); err != nil {
+			t.Fatalf("failed to read seed: %v", err)
+		}
+		keyB64 := base64.StdEncoding.EncodeToString(seed)
+		tm, err := NewTokenManager(keyB64)
+		if err != nil {
+			t.Fatalf("failed to init tm: %v", err)
+		}
+
+		userID := uuid.New()
+		sessionID := uuid.New()
+		tokenStr, err := tm.GenerateAccessToken(userID, sessionID)
+		if err != nil {
+			t.Fatalf("failed to generate: %v", err)
+		}
+
+		claims, err := tm.ValidateAccessToken(tokenStr)
+		if err != nil {
+			t.Fatalf("VALIDATION FAILED: %v", err)
+		}
+		if claims.Subject != userID.String() {
+			t.Errorf("expected subject %s, got %s", userID.String(), claims.Subject)
 		}
 	})
 }

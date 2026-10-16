@@ -57,10 +57,15 @@ func NewTokenManager(privateKeyB64 string) (*TokenManager, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode base64 JWT private key: %w", err)
 		}
-		if len(keyBytes) != ed25519.PrivateKeySize {
-			return nil, fmt.Errorf("invalid ed25519 private key size: expected %d, got %d", ed25519.PrivateKeySize, len(keyBytes))
+		var priv ed25519.PrivateKey
+		if len(keyBytes) == ed25519.SeedSize {
+			priv = ed25519.NewKeyFromSeed(keyBytes)
+		} else if len(keyBytes) == ed25519.PrivateKeySize {
+			// Deriving from the first 32-byte seed guarantees the public key in priv[32:] is mathematically correct
+			priv = ed25519.NewKeyFromSeed(keyBytes[:ed25519.SeedSize])
+		} else {
+			return nil, fmt.Errorf("invalid ed25519 private key size: expected %d or %d bytes, got %d", ed25519.SeedSize, ed25519.PrivateKeySize, len(keyBytes))
 		}
-		priv := ed25519.PrivateKey(keyBytes)
 		pub := priv.Public().(ed25519.PublicKey)
 		return &TokenManager{privateKey: priv, publicKey: pub}, nil
 	}
