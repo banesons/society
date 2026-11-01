@@ -290,7 +290,7 @@
 							<!-- Name -->
 							<td class="px-4 py-3 font-medium text-neutral-900">
 								<a
-									href={`/society/${item.id}`}
+									href={`/app/societies/${item.id}`}
 									class="inline-block max-w-xs truncate transition-colors hover:text-neutral-950 hover:underline"
 									title="Open {item.name} Console"
 								>

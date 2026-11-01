@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Connection Offline — Banesons Society</title>
+		<meta name="theme-color" content="#121212" />
+		<style>
+			:root {
+				--bg: #f3f3f1;
+				--fg: #121212;
+				--muted: #666663;
+				--border: #e2e2de;
+				--accent: #f59e0b;
+			}
+			* {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+			}
+			body {
+				background-color: var(--bg);
+				color: var(--fg);
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hedvig Letters Sans", sans-serif;
+				min-height: 100vh;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				padding: 24px;
+				text-align: center;
+				-webkit-font-smoothing: antialiased;
+			}
+			.card {
+				background: #ffffff;
+				border: 1px solid var(--border);
+				border-radius: 24px;
+				padding: 40px 32px;
+				max-width: 440px;
+				width: 100%;
+				box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+			}
+			.logo {
+				font-size: 32px;
+				font-weight: 900;
+				letter-spacing: -0.05em;
+				color: var(--fg);
+				margin-bottom: 24px;
+				display: inline-block;
+			}
+			.logo span {
+				color: var(--accent);
+			}
+			.status-pill {
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				font-size: 11px;
+				font-weight: 600;
+				text-transform: uppercase;
+				letter-spacing: 0.06em;
+				padding: 4px 12px;
+				border-radius: 9999px;
+				background: #fef3c7;
+				color: #92400e;
+				margin-bottom: 20px;
+			}
+			.dot {
+				width: 6px;
+				height: 6px;
+				border-radius: 50%;
+				background: #d97706;
+			}
+			h1 {
+				font-size: 20px;
+				font-weight: 700;
+				letter-spacing: -0.02em;
+				color: var(--fg);
+				margin-bottom: 10px;
+			}
+			p {
+				font-size: 13px;
+				line-height: 1.5;
+				color: var(--muted);
+				margin-bottom: 28px;
+			}
+			.btn {
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				width: 100%;
+				padding: 12px 20px;
+				border-radius: 9999px;
+				background: var(--fg);
+				color: #ffffff;
+				font-size: 13px;
+				font-weight: 600;
+				text-decoration: none;
+				border: none;
+				cursor: pointer;
+				transition: opacity 0.2s;
+			}
+			.btn:hover {
+				opacity: 0.9;
+			}
+			.footer-text {
+				margin-top: 24px;
+				font-size: 11px;
+				color: var(--muted);
+			}
+		</style>
+	</head>
+	<body>
+		<div class="card">
+			<div class="logo">chs<span>.</span></div>
+			<div>
+				<div class="status-pill">
+					<div class="dot"></div>
+					Offline Mode
+				</div>
+			</div>
+			<h1>Network Disconnected</h1>
+			<p>
+				Your device is currently offline. Gate verification records and cached society notices remain accessible once connection is restored.
+			</p>
+			<button class="btn" onclick="window.location.reload()">
+				Retry Connection
+			</button>
+			<div class="footer-text">Banesons Society Platform · PWA Offline Shell</div>
+		</div>
+	</body>
+</html>

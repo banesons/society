@@ -968,4 +968,213 @@ func TestVisitorOperationsAPI(t *testing.T) {
 			t.Errorf("expected 409 Conflict attempting to check in rejected visit, got %d", wCheckInRejected.Code)
 		}
 	})
+
+	t.Run("H. Unified Visitor Identity, Identity Linking, Cross-Gate Checkout, Privacy Masking, and Activity Timeline", func(t *testing.T) {
+		// 1. Create a walk-in visit for an unregistered visitor
+		unregVisitorPhone := fmt.Sprintf("+9198111%05d", (uniqueSuffix+77)%100000)
+		walkInPayload, _ := json.Marshal(map[string]interface{}{
+			"unit_id":       unitAID.String(),
+			"visitor_name":  "Unregistered Guest",
+			"visitor_phone": unregVisitorPhone,
+			"purpose":       "GUEST",
+		})
+
+		reqWalkIn := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/societies/%s/visitors/walk-in", socAIDStr), bytes.NewReader(walkInPayload))
+		reqWalkIn.Header.Set("Authorization", "Bearer "+guardAToken)
+		wWalkIn := httptest.NewRecorder()
+		router.ServeHTTP(wWalkIn, reqWalkIn)
+		if wWalkIn.Code != http.StatusCreated {
+			t.Fatalf("expected 201 Created for walk-in visit, got %d: %s", wWalkIn.Code, wWalkIn.Body.String())
+		}
+
+		visitData := parseData(wWalkIn.Body.Bytes())["visit"].(map[string]interface{})
+		visitID := visitData["id"].(string)
+		visitorIdentityID, ok := visitData["visitor_identity_id"].(string)
+		if !ok || visitorIdentityID == "" {
+			t.Fatalf("expected visitor_identity_id to be populated in visit response")
+		}
+		// Privacy check on walk-in creation response: gatekeeper must receive masked phone
+		if visitData["visitor_phone"] == unregVisitorPhone {
+			t.Errorf("privacy violation: walk-in creation returned raw phone to gatekeeper: %v", visitData["visitor_phone"])
+		}
+		if visitData["visitor_phone"] != visitData["visitor_phone_masked"] {
+			t.Errorf("expected visitor_phone to be masked in walk-in response for gatekeeper")
+		}
+
+		// 2. Privacy Boundary Test: Gatekeeper listing visits must NOT receive raw phone
+		reqList := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/societies/%s/visitors?search=%s", socAIDStr, "Unregistered"), nil)
+		reqList.Header.Set("Authorization", "Bearer "+guardAToken)
+		wList := httptest.NewRecorder()
+		router.ServeHTTP(wList, reqList)
+		if wList.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK for list visits, got %d: %s", wList.Code, wList.Body.String())
+		}
+		listData := parseData(wList.Body.Bytes())
+		visits := listData["visits"].([]interface{})
+		if len(visits) == 0 {
+			t.Fatalf("expected at least 1 visit in search result")
+		}
+		foundVisit := visits[0].(map[string]interface{})
+		// Verify raw phone is strictly masked for gatekeeper
+		if foundVisit["visitor_phone"] == unregVisitorPhone {
+			t.Errorf("privacy violation: gatekeeper received raw unmasked phone %v", foundVisit["visitor_phone"])
+		}
+		if foundVisit["visitor_phone"] != foundVisit["visitor_phone_masked"] {
+			t.Errorf("expected visitor_phone to match visitor_phone_masked for gatekeeper, got %v vs %v", foundVisit["visitor_phone"], foundVisit["visitor_phone_masked"])
+		}
+
+		// Test identity search endpoint with masking for gatekeeper
+		reqSearchID := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/societies/%s/visitors/identities/search?query=%s", socAIDStr, "Unregistered"), nil)
+		reqSearchID.Header.Set("Authorization", "Bearer "+guardAToken)
+		wSearchID := httptest.NewRecorder()
+		router.ServeHTTP(wSearchID, reqSearchID)
+		if wSearchID.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK for identity search, got %d: %s", wSearchID.Code, wSearchID.Body.String())
+		}
+		identities := parseData(wSearchID.Body.Bytes())["identities"].([]interface{})
+		if len(identities) == 0 {
+			t.Fatalf("expected visitor identity in search results")
+		}
+		firstID := identities[0].(map[string]interface{})
+		if firstID["phone"] == unregVisitorPhone {
+			t.Errorf("privacy violation: identity search returned raw phone to gatekeeper")
+		}
+
+		// Approve the visit if pending approval
+		if visitData["status"] == "PENDING_APPROVAL" {
+			approvePayload, _ := json.Marshal(map[string]interface{}{})
+			reqApprove := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/societies/%s/visitors/%s/approve", socAIDStr, visitID), bytes.NewReader(approvePayload))
+			reqApprove.Header.Set("Authorization", "Bearer "+adminAToken)
+			wApprove := httptest.NewRecorder()
+			router.ServeHTTP(wApprove, reqApprove)
+			if wApprove.Code != http.StatusOK {
+				t.Fatalf("expected 200 OK for approve, got %d: %s", wApprove.Code, wApprove.Body.String())
+			}
+		}
+
+		// 3. Cross-Gate Test: Check In at Main Gate (mainGateAID), Check Out at Exit Gate (egressGateAID)
+		checkInBody, _ := json.Marshal(map[string]interface{}{"gate_id": mainGateAID.String()})
+		reqCheckIn := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/societies/%s/visitors/%s/check-in", socAIDStr, visitID), bytes.NewReader(checkInBody))
+		reqCheckIn.Header.Set("Authorization", "Bearer "+guardAToken)
+		wCheckIn := httptest.NewRecorder()
+		router.ServeHTTP(wCheckIn, reqCheckIn)
+		if wCheckIn.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK checking in at Main Gate, got %d: %s", wCheckIn.Code, wCheckIn.Body.String())
+		}
+
+		// Privacy check on check-in response: gatekeeper must receive masked phone
+		checkInData := parseData(wCheckIn.Body.Bytes())["visit"].(map[string]interface{})
+		if checkInData["visitor_phone"] == unregVisitorPhone {
+			t.Errorf("privacy violation: check-in returned raw phone to gatekeeper: %v", checkInData["visitor_phone"])
+		}
+
+		// Verify active visits list endpoint
+		reqActive := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/societies/%s/visitors/active", socAIDStr), nil)
+		reqActive.Header.Set("Authorization", "Bearer "+guardAToken)
+		wActive := httptest.NewRecorder()
+		router.ServeHTTP(wActive, reqActive)
+		if wActive.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK for active visits, got %d: %s", wActive.Code, wActive.Body.String())
+		}
+		activeVisits := parseData(wActive.Body.Bytes())["visits"].([]interface{})
+		var foundInActive bool
+		for _, av := range activeVisits {
+			if av.(map[string]interface{})["id"] == visitID {
+				foundInActive = true
+				if av.(map[string]interface{})["visitor_phone"] == unregVisitorPhone {
+					t.Errorf("privacy violation: active visits exposed unmasked phone to gatekeeper")
+				}
+			}
+		}
+		if !foundInActive {
+			t.Errorf("checked in visit not found in active visits list")
+		}
+
+		// Create a session or use SOC_ADMIN to check out at egressGateAID
+		checkOutBody, _ := json.Marshal(map[string]interface{}{"gate_id": egressGateAID.String()})
+		reqCheckOut := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/societies/%s/visitors/%s/check-out", socAIDStr, visitID), bytes.NewReader(checkOutBody))
+		reqCheckOut.Header.Set("Authorization", "Bearer "+adminAToken) // SOC_ADMIN bypasses duty session requirement
+		wCheckOut := httptest.NewRecorder()
+		router.ServeHTTP(wCheckOut, reqCheckOut)
+		if wCheckOut.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK checking out at Egress Gate, got %d: %s", wCheckOut.Code, wCheckOut.Body.String())
+		}
+
+		checkedOutData := parseData(wCheckOut.Body.Bytes())["visit"].(map[string]interface{})
+		if checkedOutData["entry_gate_id"] != mainGateAID.String() {
+			t.Errorf("expected entry_gate_id to remain Main Gate (%s), got %v", mainGateAID.String(), checkedOutData["entry_gate_id"])
+		}
+		if checkedOutData["exit_gate_id"] != egressGateAID.String() {
+			t.Errorf("expected exit_gate_id to be Egress Gate (%s), got %v", egressGateAID.String(), checkedOutData["exit_gate_id"])
+		}
+		if checkedOutData["status"] != "CHECKED_OUT" {
+			t.Errorf("expected status CHECKED_OUT, got %v", checkedOutData["status"])
+		}
+
+		// Concurrency / Duplicate Checkout Test: second checkout must return 409 Conflict
+		reqDuplicateCheckOut := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/societies/%s/visitors/%s/check-out", socAIDStr, visitID), bytes.NewReader(checkOutBody))
+		reqDuplicateCheckOut.Header.Set("Authorization", "Bearer "+adminAToken)
+		wDuplicateCheckOut := httptest.NewRecorder()
+		router.ServeHTTP(wDuplicateCheckOut, reqDuplicateCheckOut)
+		if wDuplicateCheckOut.Code != http.StatusConflict {
+			t.Errorf("expected 409 Conflict for duplicate checkout, got %d: %s", wDuplicateCheckOut.Code, wDuplicateCheckOut.Body.String())
+		}
+
+		// 4. Identity Linking Test:
+		// Now the unregistered visitor registers for the first time via OTP verify
+		normUnregPhone, _ := auth.NormalizePhone(unregVisitorPhone)
+		regUserID, regUserToken := createTestUser(normUnregPhone)
+
+		// Call SafeLinkVisitorIdentities (which is invoked during VerifyOTP)
+		linkedCount, err := societyRepo.SafeLinkVisitorIdentities(ctx, regUserID, normUnregPhone)
+		if err != nil {
+			t.Fatalf("failed to link visitor identities: %v", err)
+		}
+		if linkedCount == 0 {
+			t.Fatalf("expected at least 1 visitor identity to be linked")
+		}
+
+		// Verify database state: society_visitor_identities has user_id set
+		var dbUserID *uuid.UUID
+		err = db.Pool().QueryRow(ctx, "SELECT user_id FROM society_visitor_identities WHERE id = $1", visitorIdentityID).Scan(&dbUserID)
+		if err != nil || dbUserID == nil || *dbUserID != regUserID {
+			t.Errorf("expected visitor identity %s to be linked to user %s, got %v", visitorIdentityID, regUserID, dbUserID)
+		}
+
+		// 5. Personal Profile Activity Timeline Test
+		reqTimeline := httptest.NewRequest(http.MethodGet, "/api/v1/auth/profile/activity", nil)
+		reqTimeline.Header.Set("Authorization", "Bearer "+regUserToken)
+		wTimeline := httptest.NewRecorder()
+		router.ServeHTTP(wTimeline, reqTimeline)
+		if wTimeline.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK for /auth/profile/activity, got %d: %s", wTimeline.Code, wTimeline.Body.String())
+		}
+
+		timelineData := parseData(wTimeline.Body.Bytes())
+		events := timelineData["events"].([]interface{})
+		if len(events) == 0 {
+			t.Fatalf("expected at least 1 activity timeline event for linked user")
+		}
+
+		// Verify visitor identity linked event is present
+		var foundLinkEvent bool
+		for _, ev := range events {
+			evMap := ev.(map[string]interface{})
+			if evMap["action"] == "VISITOR_IDENTITY_LINKED" {
+				foundLinkEvent = true
+			}
+		}
+		if !foundLinkEvent {
+			t.Errorf("expected VISITOR_IDENTITY_LINKED event in user activity timeline")
+		}
+
+		// Test category filter ?category=VISITOR
+		reqVisitorCategory := httptest.NewRequest(http.MethodGet, "/api/v1/auth/profile/activity?category=VISITOR", nil)
+		reqVisitorCategory.Header.Set("Authorization", "Bearer "+regUserToken)
+		wVisitorCategory := httptest.NewRecorder()
+		router.ServeHTTP(wVisitorCategory, reqVisitorCategory)
+		if wVisitorCategory.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK for visitor activity category, got %d: %s", wVisitorCategory.Code, wVisitorCategory.Body.String())
+		}
+	})
 }

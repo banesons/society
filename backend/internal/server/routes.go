@@ -66,10 +66,34 @@ func SetupRouter(cfg *config.Config, logger *slog.Logger, db *database.DB, authS
 					authRouter.Group(func(protected chi.Router) {
 						protected.Use(middleware.Authenticate(tokenManager, authService))
 						protected.Get("/me", MeHandler(authService, platformRepo, societyRepo))
+						protected.Get("/profile", GetProfileHandler(authService, societyRepo, platformRepo))
+						protected.Patch("/profile", UpdateProfileHandler(authService, societyRepo, platformRepo))
+						protected.Get("/profile/activity", GetUserActivityTimelineHandler(societyRepo))
+						protected.Get("/sessions", ListUserSessionsHandler(authService))
+						protected.Delete("/sessions/{id}", RevokeUserSessionHandler(authService))
 						protected.Post("/logout", LogoutHandler(authService))
 						protected.Post("/logout-all", LogoutAllHandler(authService))
 					})
 				}
+			})
+		}
+
+		// Public visitor QR endpoints
+		if societyRepo != nil && authService != nil {
+			api.Route("/public/visit-qr", func(qrRouter chi.Router) {
+				qrRouter.Get("/pass/{passReference}", GetPublicVisitorPassHandler(societyRepo, authService))
+				qrRouter.Get("/{token}", ResolvePublicGateQRHandler(societyRepo))
+				qrRouter.Post("/send-otp", SendVisitorOTPHandler(authService, societyRepo, cfg))
+				qrRouter.Post("/verify-otp", VerifyVisitorOTPHandler(authService, societyRepo))
+				qrRouter.Post("/register", RegisterVisitorByQRHandler(societyRepo, authService))
+			})
+		}
+
+		// Authenticated user visitor history
+		if societyRepo != nil && authService != nil && tokenManager != nil {
+			api.Route("/visitors", func(visitorRouter chi.Router) {
+				visitorRouter.Use(middleware.Authenticate(tokenManager, authService))
+				visitorRouter.Get("/my-history", GetMyVisitorHistoryHandler(societyRepo, authService))
 			})
 		}
 
@@ -142,11 +166,15 @@ func SetupRouter(cfg *config.Config, logger *slog.Logger, db *database.DB, authS
 					// S09 Gate Visitor Operations
 					opRouter.Get("/visitors", ListVisitsHandler(societyRepo))
 					opRouter.Get("/visitors/dashboard", GetVisitorDashboardHandler(societyRepo))
+					opRouter.Get("/visitors/active", ListActiveVisitsHandler(societyRepo))
+					opRouter.Get("/visitors/identities/search", SearchVisitorIdentitiesHandler(societyRepo))
 					opRouter.Post("/visitors/walk-in", RegisterWalkInVisitHandler(societyRepo))
 					opRouter.Post("/visitors/passes/verify", VerifyVisitorPassHandler(societyRepo))
 					opRouter.Get("/visitors/{visitId}", GetVisitDetailsHandler(societyRepo))
 					opRouter.Post("/visitors/{visitId}/check-in", CheckInVisitorHandler(societyRepo))
 					opRouter.Post("/visitors/{visitId}/check-out", CheckOutVisitorHandler(societyRepo))
+					opRouter.Get("/visitors/pending-qr", ListPendingQRRegistrationsHandler(societyRepo))
+					opRouter.Post("/visitors/{visitId}/admit-qr", AdmitQRVisitorHandler(societyRepo))
 
 					// S16 Gate Shift Dashboard
 					opRouter.Get("/gate/dashboard", GetGateDashboardHandler(societyRepo))
@@ -196,6 +224,12 @@ func SetupRouter(cfg *config.Config, logger *slog.Logger, db *database.DB, authS
 					adminRouter.Post("/units/generate", GenerateUnitsHandler(societyRepo))
 					adminRouter.Get("/units", ListUnitsHandler(societyRepo))
 					adminRouter.Post("/gates", CreateGateHandler(societyRepo))
+					adminRouter.Post("/gates/{gateId}/qr", CreateGateQRHandler(societyRepo))
+					adminRouter.Get("/gates/{gateId}/qr", ListGateQRsHandler(societyRepo))
+					adminRouter.Get("/visitor-qrs", ListGateQRsHandler(societyRepo))
+					adminRouter.Post("/visitor-qrs", CreateGateQRHandler(societyRepo))
+					adminRouter.Delete("/visitor-qrs/{qrId}", RevokeGateQRHandler(societyRepo))
+					adminRouter.Post("/visitor-qrs/{qrId}/rotate", RotateGateQRHandler(societyRepo))
 					adminRouter.Get("/staffing", GetStaffingHandler(societyRepo))
 					adminRouter.Put("/staffing", SetStaffingHandler(societyRepo))
 					adminRouter.Get("/formation-summary", GetFormationSummaryHandler(societyRepo))

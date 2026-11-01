@@ -4,7 +4,7 @@
 </script>
 
 <div
-	class="relative hidden flex-col justify-between overflow-hidden rounded-[2rem] bg-neutral-950 p-8 text-white sm:p-10 md:flex lg:col-span-6 lg:p-12"
+	class="relative hidden min-h-screen flex-col justify-between overflow-hidden bg-neutral-950 p-8 text-white sm:p-10 md:flex lg:col-span-6 lg:p-14 xl:p-20"
 >
 	<!-- Ambient lighting gradients -->
 	<div

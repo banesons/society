@@ -210,8 +210,99 @@ CREATE INDEX IF NOT EXISTS idx_gate_events_gate_history
     ON society_gate_events (society_id, gate_id, created_at DESC);
 ```
 
+### 6. Table: `society_visitor_identities` (Unified Visitor Identity)
+Represents a visitor person entity scoped to a society. Persists visitor records independent of whether the person has registered a user account, and links securely to `users(id)` upon verified account registration.
+
+```sql
+CREATE TABLE IF NOT EXISTS society_visitor_identities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    society_id UUID NOT NULL REFERENCES societies(id) ON DELETE RESTRICT,
+    phone TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    user_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+    linked_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT society_visitor_identities_society_phone_uq UNIQUE (society_id, phone),
+    CONSTRAINT society_visitor_identities_id_society_uq UNIQUE (id, society_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_visitor_identities_society_phone
+    ON society_visitor_identities (society_id, phone);
+
+CREATE INDEX IF NOT EXISTS idx_visitor_identities_user_id
+    ON society_visitor_identities (user_id)
+    WHERE user_id IS NOT NULL;
+
+-- society_visits references society_visitor_identities
+ALTER TABLE society_visits
+    ADD COLUMN IF NOT EXISTS visitor_identity_id UUID NULL;
+
+ALTER TABLE society_visits
+    ADD CONSTRAINT fk_visits_visitor_identity
+    FOREIGN KEY (visitor_identity_id, society_id)
+    REFERENCES society_visitor_identities(id, society_id)
+    ON DELETE RESTRICT;
+
+CREATE INDEX IF NOT EXISTS idx_visits_visitor_identity
+    ON society_visits (society_id, visitor_identity_id);
+```
+
+### 8. Table: `society_gate_qrs` and QR Self-Registration Schema
+Added in migration `20261031000000_create_visitor_qr_and_self_registration.sql` to support entrance QR registration points, digital passes, and self-registration.
+
+```sql
+CREATE TABLE IF NOT EXISTS society_gate_qrs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    society_id UUID NOT NULL REFERENCES societies(id) ON DELETE RESTRICT,
+    gate_id UUID NULL REFERENCES society_gates(id) ON DELETE SET NULL,
+    token TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL DEFAULT 'Visitor Registration QR',
+    status TEXT NOT NULL DEFAULT 'ACTIVE'
+        CHECK (status IN ('ACTIVE', 'REVOKED', 'EXPIRED')),
+    expires_at TIMESTAMPTZ NULL,
+    created_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT society_gate_qrs_id_society_uq UNIQUE (id, society_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_society_gate_qrs_token
+    ON society_gate_qrs (token) WHERE status = 'ACTIVE';
+
+CREATE INDEX IF NOT EXISTS idx_society_gate_qrs_society_gate
+    ON society_gate_qrs (society_id, gate_id);
+
+-- Modifications to society_visits
+ALTER TABLE society_visits
+    ALTER COLUMN created_by DROP NOT NULL;
+
+ALTER TABLE society_visits
+    ADD COLUMN IF NOT EXISTS visitor_photo_url TEXT NULL,
+    ADD COLUMN IF NOT EXISTS coming_from TEXT NULL,
+    ADD COLUMN IF NOT EXISTS pass_reference TEXT NULL,
+    ADD COLUMN IF NOT EXISTS qr_id UUID NULL REFERENCES society_gate_qrs(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_society_visits_pass_reference
+    ON society_visits (pass_reference) WHERE pass_reference IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_society_visits_pending_qr
+    ON society_visits (society_id, status)
+    WHERE status = 'REGISTERED_PENDING_GATE_VERIFICATION';
+
+-- Updated check constraints support:
+-- visit_type: 'EXPECTED', 'WALK_IN', 'QR_SELF_REGISTER'
+-- status: 'PENDING_APPROVAL', 'REGISTERED_PENDING_GATE_VERIFICATION', 'APPROVED',
+--         'REJECTED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED', 'EXPIRED'
+```
+
 ## Related Documents
 - [[08-gate-foundation-and-staffing-schema]]
 - [[../architecture/14-gate-visitor-operations]]
 - [[../decisions/023-visitor-lifecycle-and-gate-operations]]
+- [[../decisions/041-gatekeeper-experience-visitor-identity-and-activity-timeline]]
+- [[../decisions/044-qr-based-visitor-pass-and-gatekeeper-admission]]
 - [[../api/10-gate-visitor-operations-api]]
+

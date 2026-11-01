@@ -63,14 +63,20 @@ However, arbitrary truncation or schema drops risk destroying:
      - Zero visitor logs (deferred strictly to S09).
 4. **Idempotency & Verification**:
    - The reset and seed sequence is strictly repeatable and asserts database invariants upon completion.
+5. **Strict Two-Society Baseline & Test Teardown Policy**:
+   - The development database must never persist more than the two canonical societies (`SOC-MUM-SRM101` and `SOC-PUN-GVR202`).
+   - Integration tests in `backend/internal/server` execute automated setup and teardown via package-level `TestMain` (`testutil.CleanExtraSocieties`), guaranteeing that no test-generated societies or synthetic platform admins leak into the persistent database.
+   - A dedicated verification test (`backend/internal/server/society_invariants_test.go`) and standalone runner (`go run ./cmd/cleanup`) continuously enforce this invariant.
 
 ## Consequences
-- Clean, realistic development environment matching S00–S08 architecture.
+- Clean, realistic development environment matching S00–S16 architecture.
 - Absolute preservation of database schema, constraints, triggers, and migrations.
+- Strict isolation preventing test runs from accumulating zombie societies.
 - Clear separation between platform admin credentials and society operational records.
-- Ready foundation for S09 Gate Operations.
+- Zero-leak guarantee across development and automated testing.
 
 ## Related Documentation
 - [[../architecture/13-development-seed-data|13 — Development Seed Data Architecture]]
 - [[../sprints/S08-gate-foundation|S08 — Gate Foundation]]
 - [[../database/08-gate-foundation-and-staffing-schema|08 — Gate Foundation and Staffing Schema]]
+

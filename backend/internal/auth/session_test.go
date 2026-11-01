@@ -559,3 +559,155 @@ func TestFIFOSessionReplacement(t *testing.T) {
 		}
 	})
 }
+
+func TestParseUserAgent(t *testing.T) {
+	tests := []struct {
+		name        string
+		ua          string
+		wantDevice  string
+		wantBrowser string
+		wantOS      string
+	}{
+		{
+			name:        "macOS Chrome",
+			ua:          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			wantDevice:  "Chrome on macOS",
+			wantBrowser: "Chrome",
+			wantOS:      "macOS",
+		},
+		{
+			name:        "iOS Safari",
+			ua:          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+			wantDevice:  "Safari on iOS",
+			wantBrowser: "Safari",
+			wantOS:      "iOS",
+		},
+		{
+			name:        "Windows Edge",
+			ua:          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+			wantDevice:  "Edge on Windows",
+			wantBrowser: "Edge",
+			wantOS:      "Windows",
+		},
+		{
+			name:        "Android Chrome",
+			ua:          "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36",
+			wantDevice:  "Chrome on Android",
+			wantBrowser: "Chrome",
+			wantOS:      "Android",
+		},
+		{
+			name:        "Empty UA",
+			ua:          "",
+			wantDevice:  "Unknown Device",
+			wantBrowser: "Unknown",
+			wantOS:      "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotDev, gotBrow, gotOS := ParseUserAgent(tt.ua)
+			if gotDev != tt.wantDevice {
+				t.Errorf("deviceLabel = %q, want %q", gotDev, tt.wantDevice)
+			}
+			if gotBrow != tt.wantBrowser {
+				t.Errorf("browser = %q, want %q", gotBrow, tt.wantBrowser)
+			}
+			if gotOS != tt.wantOS {
+				t.Errorf("os = %q, want %q", gotOS, tt.wantOS)
+			}
+		})
+	}
+}
+
+func TestActiveSessionsManagement(t *testing.T) {
+	ctx := context.Background()
+	pool := getTestPool(t)
+	svc, _, tm := setupTestAuthService(t, pool)
+	phone := "919820010001"
+	otherPhone := "919820010002"
+
+	// 1. Establish Session 1 from Chrome on macOS
+	macUA := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	res1 := sendAndVerifyOTP(t, svc, pool, phone, macUA, "192.168.1.100")
+	claims1, err := tm.ValidateAccessToken(res1.AccessToken)
+	if err != nil {
+		t.Fatalf("failed to validate token 1: %v", err)
+	}
+
+	// 2. Establish Session 2 from iPhone Safari
+	iosUA := "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+	res2 := sendAndVerifyOTP(t, svc, pool, phone, iosUA, "192.168.1.101")
+	claims2, err := tm.ValidateAccessToken(res2.AccessToken)
+	if err != nil {
+		t.Fatalf("failed to validate token 2: %v", err)
+	}
+
+	// 3. Query active sessions with currentSession = claims2
+	sessions, err := svc.ListActiveSessions(ctx, res2.User.ID, claims2.SessionID)
+	if err != nil {
+		t.Fatalf("failed to list active sessions: %v", err)
+	}
+
+	if len(sessions) != 2 {
+		t.Fatalf("expected exactly 2 active sessions, got %d", len(sessions))
+	}
+
+	// Verify current session flag and device metadata
+	var currentFound, otherFound bool
+	for _, s := range sessions {
+		if s.ID == claims2.SessionID {
+			currentFound = true
+			if !s.IsCurrent {
+				t.Errorf("expected session %s to have is_current=true", s.ID)
+			}
+			if s.DeviceLabel != "Safari on iOS" {
+				t.Errorf("expected 'Safari on iOS', got %q", s.DeviceLabel)
+			}
+		}
+		if s.ID == claims1.SessionID {
+			otherFound = true
+			if s.IsCurrent {
+				t.Errorf("expected session %s to have is_current=false", s.ID)
+			}
+			if s.DeviceLabel != "Chrome on macOS" {
+				t.Errorf("expected 'Chrome on macOS', got %q", s.DeviceLabel)
+			}
+		}
+	}
+
+	if !currentFound || !otherFound {
+		t.Fatalf("expected both sessions to be present in active sessions list")
+	}
+
+	// 4. Test Cross-user revocation isolation: Another user cannot revoke user 1's session
+	resOther := sendAndVerifyOTP(t, svc, pool, otherPhone, "Curl/8.0", "127.0.0.1")
+	if err := svc.RevokeSession(ctx, resOther.User.ID, claims1.SessionID); err != ErrSessionNotFound {
+		t.Errorf("expected ErrSessionNotFound when user %s attempts to revoke user %s's session, got %v",
+			resOther.User.ID, res2.User.ID, err)
+	}
+
+	// 5. Authorized user revokes Session 1
+	if err := svc.RevokeSession(ctx, res2.User.ID, claims1.SessionID); err != nil {
+		t.Fatalf("failed to revoke own session: %v", err)
+	}
+
+	// 6. Active sessions list now contains only 1 active session
+	sessionsAfter, err := svc.ListActiveSessions(ctx, res2.User.ID, claims2.SessionID)
+	if err != nil {
+		t.Fatalf("failed to list active sessions after revocation: %v", err)
+	}
+
+	if len(sessionsAfter) != 1 {
+		t.Fatalf("expected exactly 1 active session after revocation, got %d", len(sessionsAfter))
+	}
+	if sessionsAfter[0].ID != claims2.SessionID {
+		t.Errorf("expected remaining session to be %s, got %s", claims2.SessionID, sessionsAfter[0].ID)
+	}
+
+	// 7. Revoking an already revoked session returns ErrSessionNotFound
+	if err := svc.RevokeSession(ctx, res2.User.ID, claims1.SessionID); err != ErrSessionNotFound {
+		t.Errorf("expected ErrSessionNotFound for already revoked session, got %v", err)
+	}
+}

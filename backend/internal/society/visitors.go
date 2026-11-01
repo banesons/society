@@ -47,6 +47,7 @@ const (
 	ActionVisitorCheckedIn         = "VISITOR_CHECKED_IN"
 	ActionVisitorCheckedOut        = "VISITOR_CHECKED_OUT"
 	ActionUnitVisitorPolicyUpdated = "UNIT_VISITOR_POLICY_UPDATED"
+	ActionVisitorIdentityLinked    = "VISITOR_IDENTITY_LINKED"
 )
 
 // ResidentUnit represents a unit accessible to an authorized resident member.
@@ -66,6 +67,19 @@ type ResidentUnit struct {
 	RequiresVisitorApproval bool       `json:"requires_visitor_approval"`
 }
 
+// VisitorIdentity represents a first-class visitor identity record within a society.
+type VisitorIdentity struct {
+	ID          uuid.UUID  `json:"id"`
+	SocietyID   uuid.UUID  `json:"society_id"`
+	Phone       string     `json:"phone"`
+	PhoneMasked string     `json:"phone_masked"`
+	FullName    string     `json:"full_name"`
+	UserID      *uuid.UUID `json:"user_id,omitempty"`
+	LinkedAt    *time.Time `json:"linked_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
 // Visit represents a visitor's request and physical visit record.
 type Visit struct {
 	ID                 uuid.UUID  `json:"id"`
@@ -78,9 +92,14 @@ type Visit struct {
 	VisitorName        string     `json:"visitor_name"`
 	VisitorPhone       string     `json:"visitor_phone"`
 	VisitorPhoneMasked string     `json:"visitor_phone_masked"`
+	VisitorIdentityID  *uuid.UUID `json:"visitor_identity_id,omitempty"`
+	VisitorPhotoURL    *string    `json:"visitor_photo_url,omitempty"`
+	ComingFrom         *string    `json:"coming_from,omitempty"`
+	PassReference      *string    `json:"pass_reference,omitempty"`
+	QRID               *uuid.UUID `json:"qr_id,omitempty"`
 	Purpose            string     `json:"purpose"`
-	VisitType          string     `json:"visit_type"` // EXPECTED, WALK_IN
-	Status             string     `json:"status"`     // PENDING_APPROVAL, APPROVED, REJECTED, CHECKED_IN, CHECKED_OUT, CANCELLED, EXPIRED
+	VisitType          string     `json:"visit_type"` // EXPECTED, WALK_IN, QR_SELF_REGISTER
+	Status             string     `json:"status"`     // PENDING_APPROVAL, REGISTERED_PENDING_GATE_VERIFICATION, APPROVED, REJECTED, CHECKED_IN, CHECKED_OUT, CANCELLED, EXPIRED
 	VehicleNumber      *string    `json:"vehicle_number,omitempty"`
 	ExpectedArrival    *time.Time `json:"expected_arrival,omitempty"`
 	ValidUntil         *time.Time `json:"valid_until,omitempty"`
@@ -91,7 +110,7 @@ type Visit struct {
 	ExitGateID         *uuid.UUID `json:"exit_gate_id,omitempty"`
 	ExitGateName       *string    `json:"exit_gate_name,omitempty"`
 	RejectionReason    *string    `json:"rejection_reason,omitempty"`
-	CreatedBy          uuid.UUID  `json:"created_by"`
+	CreatedBy          *uuid.UUID `json:"created_by,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`
 }
@@ -173,12 +192,13 @@ type RegisterWalkInVisitParams struct {
 
 // VisitFilter represents search & filter criteria.
 type VisitFilter struct {
-	Status    string
-	VisitType string
-	Search    string
-	UnitID    *uuid.UUID
-	Limit     int
-	Offset    int
+	Status     string
+	VisitType  string
+	Search     string
+	UnitID     *uuid.UUID
+	CallerRole string
+	Limit      int
+	Offset     int
 }
 
 // Helper to generate a secure random pass code and token
@@ -261,25 +281,47 @@ func (r *Repository) RegisterExpectedVisit(
 		validUntil = *params.ValidUntil
 	}
 
+	// Upsert first-class visitor identity within this society
+	var visitorIdentityID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO society_visitor_identities (
+			id, society_id, phone, full_name, user_id, linked_at, created_at, updated_at
+		) VALUES (
+			gen_random_uuid(), $1, $2, $3,
+			(SELECT id FROM users WHERE phone = $2 LIMIT 1),
+			CASE WHEN EXISTS (SELECT 1 FROM users WHERE phone = $2) THEN $4::timestamptz ELSE NULL END,
+			$4, $4
+		)
+		ON CONFLICT (society_id, phone) DO UPDATE
+		SET full_name = EXCLUDED.full_name,
+			user_id = COALESCE(society_visitor_identities.user_id, EXCLUDED.user_id),
+			linked_at = COALESCE(society_visitor_identities.linked_at, EXCLUDED.linked_at),
+			updated_at = EXCLUDED.updated_at
+		RETURNING id
+	`, societyID, normPhone, strings.TrimSpace(params.VisitorName), now).Scan(&visitorIdentityID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to upsert visitor identity: %w", err)
+	}
+
 	visitID := uuid.New()
 	var visit Visit
 	err = tx.QueryRow(ctx, `
 		INSERT INTO society_visits (
-			id, society_id, unit_id, visitor_name, visitor_phone, purpose, 
+			id, society_id, unit_id, visitor_identity_id, visitor_name, visitor_phone, purpose, 
 			visit_type, status, vehicle_number, expected_arrival, valid_until, 
 			created_by, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, 'EXPECTED', $7, $8, $9, $10, $11, $12, $12
+			$1, $2, $3, $4, $5, $6, $7, 'EXPECTED', $8, $9, $10, $11, $12, $13, $13
 		)
 		RETURNING 
-			id, society_id, unit_id, visitor_name, visitor_phone, purpose, 
+			id, society_id, unit_id, visitor_identity_id, visitor_name, visitor_phone, purpose, 
 			visit_type, status, vehicle_number, expected_arrival, valid_until, 
 			check_in_at, check_out_at, entry_gate_id, exit_gate_id, rejection_reason, 
 			created_by, created_at, updated_at
-	`, visitID, societyID, params.UnitID, strings.TrimSpace(params.VisitorName), normPhone,
+	`, visitID, societyID, params.UnitID, visitorIdentityID, strings.TrimSpace(params.VisitorName), normPhone,
 		strings.TrimSpace(params.Purpose), initialStatus, params.VehicleNumber, expectedArrival,
 		validUntil, actorID, now).Scan(
-		&visit.ID, &visit.SocietyID, &visit.UnitID, &visit.VisitorName, &visit.VisitorPhone,
+		&visit.ID, &visit.SocietyID, &visit.UnitID, &visit.VisitorIdentityID, &visit.VisitorName, &visit.VisitorPhone,
 		&visit.Purpose, &visit.VisitType, &visit.Status, &visit.VehicleNumber,
 		&visit.ExpectedArrival, &visit.ValidUntil, &visit.CheckInAt, &visit.CheckOutAt,
 		&visit.EntryGateID, &visit.ExitGateID, &visit.RejectionReason,
@@ -396,25 +438,47 @@ func (r *Repository) RegisterWalkInVisit(
 	now := time.Now().UTC()
 	validUntil := now.Add(12 * time.Hour)
 
+	// Upsert first-class visitor identity within this society
+	var visitorIdentityID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO society_visitor_identities (
+			id, society_id, phone, full_name, user_id, linked_at, created_at, updated_at
+		) VALUES (
+			gen_random_uuid(), $1, $2, $3,
+			(SELECT id FROM users WHERE phone = $2 LIMIT 1),
+			CASE WHEN EXISTS (SELECT 1 FROM users WHERE phone = $2) THEN $4::timestamptz ELSE NULL END,
+			$4, $4
+		)
+		ON CONFLICT (society_id, phone) DO UPDATE
+		SET full_name = EXCLUDED.full_name,
+			user_id = COALESCE(society_visitor_identities.user_id, EXCLUDED.user_id),
+			linked_at = COALESCE(society_visitor_identities.linked_at, EXCLUDED.linked_at),
+			updated_at = EXCLUDED.updated_at
+		RETURNING id
+	`, societyID, normPhone, strings.TrimSpace(params.VisitorName), now).Scan(&visitorIdentityID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upsert visitor identity: %w", err)
+	}
+
 	visitID := uuid.New()
 	var visit Visit
 	err = tx.QueryRow(ctx, `
 		INSERT INTO society_visits (
-			id, society_id, unit_id, visitor_name, visitor_phone, purpose, 
+			id, society_id, unit_id, visitor_identity_id, visitor_name, visitor_phone, purpose, 
 			visit_type, status, vehicle_number, expected_arrival, valid_until, 
 			created_by, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, 'WALK_IN', $7, $8, $9, $10, $11, $12, $12
+			$1, $2, $3, $4, $5, $6, $7, 'WALK_IN', $8, $9, $10, $11, $12, $13, $13
 		)
 		RETURNING 
-			id, society_id, unit_id, visitor_name, visitor_phone, purpose, 
+			id, society_id, unit_id, visitor_identity_id, visitor_name, visitor_phone, purpose, 
 			visit_type, status, vehicle_number, expected_arrival, valid_until, 
 			check_in_at, check_out_at, entry_gate_id, exit_gate_id, rejection_reason, 
 			created_by, created_at, updated_at
-	`, visitID, societyID, params.UnitID, strings.TrimSpace(params.VisitorName), normPhone,
+	`, visitID, societyID, params.UnitID, visitorIdentityID, strings.TrimSpace(params.VisitorName), normPhone,
 		strings.TrimSpace(params.Purpose), initialStatus, params.VehicleNumber, now,
 		validUntil, actorID, now).Scan(
-		&visit.ID, &visit.SocietyID, &visit.UnitID, &visit.VisitorName, &visit.VisitorPhone,
+		&visit.ID, &visit.SocietyID, &visit.UnitID, &visit.VisitorIdentityID, &visit.VisitorName, &visit.VisitorPhone,
 		&visit.Purpose, &visit.VisitType, &visit.Status, &visit.VehicleNumber,
 		&visit.ExpectedArrival, &visit.ValidUntil, &visit.CheckInAt, &visit.CheckOutAt,
 		&visit.EntryGateID, &visit.ExitGateID, &visit.RejectionReason,
@@ -549,7 +613,7 @@ func (r *Repository) ListVisits(ctx context.Context, societyID uuid.UUID, filter
 		SELECT 
 			v.id, v.society_id, v.unit_id, u.unit_identifier, b.name AS building_name,
 			v.resident_id, m.first_name || COALESCE(' ' || m.last_name, '') AS resident_name,
-			v.visitor_name, v.visitor_phone, v.purpose, v.visit_type, v.status,
+			v.visitor_name, v.visitor_phone, v.visitor_identity_id, v.purpose, v.visit_type, v.status,
 			v.vehicle_number, v.expected_arrival, v.valid_until, v.check_in_at, v.check_out_at,
 			v.entry_gate_id, eg.name AS entry_gate_name,
 			v.exit_gate_id, xg.name AS exit_gate_name,
@@ -579,7 +643,7 @@ func (r *Repository) ListVisits(ctx context.Context, societyID uuid.UUID, filter
 		err := rows.Scan(
 			&item.ID, &item.SocietyID, &item.UnitID, &item.UnitIdentifier, &item.BuildingName,
 			&item.ResidentID, &resName,
-			&item.VisitorName, &item.VisitorPhone, &item.Purpose, &item.VisitType, &item.Status,
+			&item.VisitorName, &item.VisitorPhone, &item.VisitorIdentityID, &item.Purpose, &item.VisitType, &item.Status,
 			&item.VehicleNumber, &item.ExpectedArrival, &item.ValidUntil, &item.CheckInAt, &item.CheckOutAt,
 			&item.EntryGateID, &eGate,
 			&item.ExitGateID, &xGate,
@@ -592,6 +656,9 @@ func (r *Repository) ListVisits(ctx context.Context, societyID uuid.UUID, filter
 		item.EntryGateName = eGate
 		item.ExitGateName = xGate
 		item.VisitorPhoneMasked = auth.MaskPhone(item.VisitorPhone)
+		if filter.CallerRole == "GATEKEEPER" {
+			item.VisitorPhone = item.VisitorPhoneMasked
+		}
 		visits = append(visits, item)
 	}
 
@@ -607,6 +674,7 @@ func (r *Repository) GetVisitDetails(
 	ctx context.Context,
 	societyID uuid.UUID,
 	visitID uuid.UUID,
+	callerRole string,
 ) (*Visit, []VisitorPass, []VisitApproval, []GateEvent, error) {
 	if r.pool == nil {
 		return nil, nil, nil, nil, errors.New("database pool unavailable")
@@ -616,7 +684,7 @@ func (r *Repository) GetVisitDetails(
 		SELECT 
 			v.id, v.society_id, v.unit_id, u.unit_identifier, b.name AS building_name,
 			v.resident_id, m.first_name || COALESCE(' ' || m.last_name, '') AS resident_name,
-			v.visitor_name, v.visitor_phone, v.purpose, v.visit_type, v.status,
+			v.visitor_name, v.visitor_phone, v.visitor_identity_id, v.purpose, v.visit_type, v.status,
 			v.vehicle_number, v.expected_arrival, v.valid_until, v.check_in_at, v.check_out_at,
 			v.entry_gate_id, eg.name AS entry_gate_name,
 			v.exit_gate_id, xg.name AS exit_gate_name,
@@ -635,7 +703,7 @@ func (r *Repository) GetVisitDetails(
 	err := r.pool.QueryRow(ctx, query, visitID, societyID).Scan(
 		&item.ID, &item.SocietyID, &item.UnitID, &item.UnitIdentifier, &item.BuildingName,
 		&item.ResidentID, &resName,
-		&item.VisitorName, &item.VisitorPhone, &item.Purpose, &item.VisitType, &item.Status,
+		&item.VisitorName, &item.VisitorPhone, &item.VisitorIdentityID, &item.Purpose, &item.VisitType, &item.Status,
 		&item.VehicleNumber, &item.ExpectedArrival, &item.ValidUntil, &item.CheckInAt, &item.CheckOutAt,
 		&item.EntryGateID, &eGate,
 		&item.ExitGateID, &xGate,
@@ -652,6 +720,9 @@ func (r *Repository) GetVisitDetails(
 	item.EntryGateName = eGate
 	item.ExitGateName = xGate
 	item.VisitorPhoneMasked = auth.MaskPhone(item.VisitorPhone)
+	if callerRole == "GATEKEEPER" {
+		item.VisitorPhone = item.VisitorPhoneMasked
+	}
 
 	// Passes
 	passRows, err := r.pool.Query(ctx, `
@@ -776,12 +847,12 @@ func (r *Repository) ApproveVisit(
 		SET status = 'APPROVED', updated_at = $1
 		WHERE id = $2 AND society_id = $3
 		RETURNING 
-			id, society_id, unit_id, visitor_name, visitor_phone, purpose, 
+			id, society_id, unit_id, visitor_identity_id, visitor_name, visitor_phone, purpose, 
 			visit_type, status, vehicle_number, expected_arrival, valid_until, 
 			check_in_at, check_out_at, entry_gate_id, exit_gate_id, rejection_reason, 
 			created_by, created_at, updated_at
 	`, now, visitID, societyID).Scan(
-		&updated.ID, &updated.SocietyID, &updated.UnitID, &updated.VisitorName, &updated.VisitorPhone,
+		&updated.ID, &updated.SocietyID, &updated.UnitID, &updated.VisitorIdentityID, &updated.VisitorName, &updated.VisitorPhone,
 		&updated.Purpose, &updated.VisitType, &updated.Status, &updated.VehicleNumber,
 		&updated.ExpectedArrival, &updated.ValidUntil, &updated.CheckInAt, &updated.CheckOutAt,
 		&updated.EntryGateID, &updated.ExitGateID, &updated.RejectionReason,
@@ -822,14 +893,14 @@ func (r *Repository) ApproveVisit(
 	}
 
 	// Outbox notification for visit approval
-	if updated.CreatedBy != uuid.Nil {
+	if updated.CreatedBy != nil && *updated.CreatedBy != uuid.Nil {
 		outboxPayload := map[string]interface{}{
-			"recipient_user_id": updated.CreatedBy.String(),
+			"recipient_user_id": (*updated.CreatedBy).String(),
 			"society_id":        societyID.String(),
 			"visit_id":          visitID.String(),
 			"visitor_name":      visitorName,
 		}
-		_ = r.EnqueueNotificationOutbox(ctx, tx, "VISIT_APPROVED", fmt.Sprintf("VISIT_APP:%s:%s", visitID.String(), updated.CreatedBy.String()), outboxPayload)
+		_ = r.EnqueueNotificationOutbox(ctx, tx, "VISIT_APPROVED", fmt.Sprintf("VISIT_APP:%s:%s", visitID.String(), (*updated.CreatedBy).String()), outboxPayload)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -886,12 +957,12 @@ func (r *Repository) RejectVisit(
 		SET status = 'REJECTED', rejection_reason = $1, updated_at = $2
 		WHERE id = $3 AND society_id = $4
 		RETURNING 
-			id, society_id, unit_id, visitor_name, visitor_phone, purpose, 
+			id, society_id, unit_id, visitor_identity_id, visitor_name, visitor_phone, purpose, 
 			visit_type, status, vehicle_number, expected_arrival, valid_until, 
 			check_in_at, check_out_at, entry_gate_id, exit_gate_id, rejection_reason, 
 			created_by, created_at, updated_at
 	`, reason, now, visitID, societyID).Scan(
-		&updated.ID, &updated.SocietyID, &updated.UnitID, &updated.VisitorName, &updated.VisitorPhone,
+		&updated.ID, &updated.SocietyID, &updated.UnitID, &updated.VisitorIdentityID, &updated.VisitorName, &updated.VisitorPhone,
 		&updated.Purpose, &updated.VisitType, &updated.Status, &updated.VehicleNumber,
 		&updated.ExpectedArrival, &updated.ValidUntil, &updated.CheckInAt, &updated.CheckOutAt,
 		&updated.EntryGateID, &updated.ExitGateID, &updated.RejectionReason,
@@ -933,19 +1004,19 @@ func (r *Repository) RejectVisit(
 	}
 
 	// Outbox notification for visit rejection
-	if updated.CreatedBy != uuid.Nil {
+	if updated.CreatedBy != nil && *updated.CreatedBy != uuid.Nil {
 		var reasonStr string
 		if reason != nil {
 			reasonStr = *reason
 		}
 		outboxPayload := map[string]interface{}{
-			"recipient_user_id": updated.CreatedBy.String(),
+			"recipient_user_id": (*updated.CreatedBy).String(),
 			"society_id":        societyID.String(),
 			"visit_id":          visitID.String(),
 			"visitor_name":      visitorName,
 			"rejection_reason":  reasonStr,
 		}
-		_ = r.EnqueueNotificationOutbox(ctx, tx, "VISIT_REJECTED", fmt.Sprintf("VISIT_REJ:%s:%s", visitID.String(), updated.CreatedBy.String()), outboxPayload)
+		_ = r.EnqueueNotificationOutbox(ctx, tx, "VISIT_REJECTED", fmt.Sprintf("VISIT_REJ:%s:%s", visitID.String(), (*updated.CreatedBy).String()), outboxPayload)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -1000,12 +1071,12 @@ func (r *Repository) CancelVisit(
 		SET status = 'CANCELLED', updated_at = $1
 		WHERE id = $2 AND society_id = $3
 		RETURNING 
-			id, society_id, unit_id, visitor_name, visitor_phone, purpose, 
+			id, society_id, unit_id, visitor_identity_id, visitor_name, visitor_phone, purpose, 
 			visit_type, status, vehicle_number, expected_arrival, valid_until, 
 			check_in_at, check_out_at, entry_gate_id, exit_gate_id, rejection_reason, 
 			created_by, created_at, updated_at
 	`, now, visitID, societyID).Scan(
-		&updated.ID, &updated.SocietyID, &updated.UnitID, &updated.VisitorName, &updated.VisitorPhone,
+		&updated.ID, &updated.SocietyID, &updated.UnitID, &updated.VisitorIdentityID, &updated.VisitorName, &updated.VisitorPhone,
 		&updated.Purpose, &updated.VisitType, &updated.Status, &updated.VehicleNumber,
 		&updated.ExpectedArrival, &updated.ValidUntil, &updated.CheckInAt, &updated.CheckOutAt,
 		&updated.EntryGateID, &updated.ExitGateID, &updated.RejectionReason,
@@ -1314,12 +1385,12 @@ func (r *Repository) CheckInVisitor(
 		    vehicle_number = COALESCE($3, vehicle_number), updated_at = $1
 		WHERE id = $4 AND society_id = $5
 		RETURNING 
-			id, society_id, unit_id, visitor_name, visitor_phone, purpose, 
+			id, society_id, unit_id, visitor_identity_id, visitor_name, visitor_phone, purpose, 
 			visit_type, status, vehicle_number, expected_arrival, valid_until, 
 			check_in_at, check_out_at, entry_gate_id, exit_gate_id, rejection_reason, 
 			created_by, created_at, updated_at
 	`, now, gateID, vehicleNumber, visitID, societyID).Scan(
-		&updated.ID, &updated.SocietyID, &updated.UnitID, &updated.VisitorName, &updated.VisitorPhone,
+		&updated.ID, &updated.SocietyID, &updated.UnitID, &updated.VisitorIdentityID, &updated.VisitorName, &updated.VisitorPhone,
 		&updated.Purpose, &updated.VisitType, &updated.Status, &updated.VehicleNumber,
 		&updated.ExpectedArrival, &updated.ValidUntil, &updated.CheckInAt, &updated.CheckOutAt,
 		&updated.EntryGateID, &updated.ExitGateID, &updated.RejectionReason,
@@ -1489,12 +1560,12 @@ func (r *Repository) CheckOutVisitor(
 		SET status = 'CHECKED_OUT', check_out_at = $1, exit_gate_id = $2, updated_at = $1
 		WHERE id = $3 AND society_id = $4
 		RETURNING 
-			id, society_id, unit_id, visitor_name, visitor_phone, purpose, 
+			id, society_id, unit_id, visitor_identity_id, visitor_name, visitor_phone, purpose, 
 			visit_type, status, vehicle_number, expected_arrival, valid_until, 
 			check_in_at, check_out_at, entry_gate_id, exit_gate_id, rejection_reason, 
 			created_by, created_at, updated_at
 	`, now, gateID, visitID, societyID).Scan(
-		&updated.ID, &updated.SocietyID, &updated.UnitID, &updated.VisitorName, &updated.VisitorPhone,
+		&updated.ID, &updated.SocietyID, &updated.UnitID, &updated.VisitorIdentityID, &updated.VisitorName, &updated.VisitorPhone,
 		&updated.Purpose, &updated.VisitType, &updated.Status, &updated.VehicleNumber,
 		&updated.ExpectedArrival, &updated.ValidUntil, &updated.CheckInAt, &updated.CheckOutAt,
 		&updated.EntryGateID, &updated.ExitGateID, &updated.RejectionReason,
@@ -1860,4 +1931,228 @@ func (r *Repository) ListPendingVisitsForResident(
 	}
 
 	return items, nil
+}
+
+// SafeLinkVisitorIdentities links unlinked society visitor identities to the verified user's account.
+// It incorporates ambiguity checks: if multiple distinct names exist for the phone and user profile name
+// is known, it only links identities matching the user's name; if multiple conflicting names exist
+// and profile name is unset, it avoids blind merges to protect shared family phones.
+func (r *Repository) SafeLinkVisitorIdentities(ctx context.Context, userID uuid.UUID, phone string) (int64, error) {
+	if r.pool == nil {
+		return 0, errors.New("database pool unavailable")
+	}
+
+	normPhone, err := auth.NormalizePhone(phone)
+	if err != nil {
+		return 0, ErrInvalidPhoneFormat
+	}
+
+	// Retrieve user's current profile name if available
+	var firstName, lastName string
+	_ = r.pool.QueryRow(ctx, `
+		SELECT COALESCE(first_name, ''), COALESCE(last_name, '')
+		FROM user_profiles
+		WHERE user_id = $1
+	`, userID).Scan(&firstName, &lastName)
+
+	firstName = strings.TrimSpace(firstName)
+
+	// Check if multiple distinct names exist for this phone number
+	var distinctNameCount int
+	_ = r.pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT LOWER(TRIM(full_name)))
+		FROM society_visitor_identities
+		WHERE phone = $1 AND user_id IS NULL
+	`, normPhone).Scan(&distinctNameCount)
+
+	// Ambiguity resolution:
+	// If distinctNameCount > 1 and the user has not established a first name in their profile yet,
+	// do NOT blindly claim all conflicting identities.
+	if distinctNameCount > 1 && firstName == "" {
+		return 0, nil
+	}
+
+	now := time.Now().UTC()
+	var rowsAffected int64
+
+	if firstName != "" {
+		// Only link identities whose name matches the user's verified profile name
+		cleanFirst := strings.ToLower(firstName)
+		cmdTag, err := r.pool.Exec(ctx, `
+			UPDATE society_visitor_identities
+			SET user_id = $1, linked_at = $2, updated_at = $2
+			WHERE phone = $3 AND user_id IS NULL
+			  AND (LOWER(TRIM(full_name)) ILIKE '%' || $4 || '%' OR $4 = '')
+		`, userID, now, normPhone, cleanFirst)
+		if err != nil {
+			return 0, fmt.Errorf("failed to link visitor identities: %w", err)
+		}
+		rowsAffected = cmdTag.RowsAffected()
+	} else {
+		// Unambiguous (distinctNameCount <= 1): safe to link
+		cmdTag, err := r.pool.Exec(ctx, `
+			UPDATE society_visitor_identities
+			SET user_id = $1, linked_at = $2, updated_at = $2
+			WHERE phone = $3 AND user_id IS NULL
+		`, userID, now, normPhone)
+		if err != nil {
+			return 0, fmt.Errorf("failed to link visitor identities: %w", err)
+		}
+		rowsAffected = cmdTag.RowsAffected()
+	}
+
+	if rowsAffected > 0 {
+		details := map[string]interface{}{
+			"user_id":      userID.String(),
+			"phone_masked": auth.MaskPhone(normPhone),
+			"linked_count": rowsAffected,
+		}
+		detailsJSON, _ := json.Marshal(details)
+		_, _ = r.pool.Exec(ctx, `
+			INSERT INTO platform_audit_logs (actor_id, action, target_user_id, details)
+			VALUES ($1, $2, $1, $3::jsonb)
+		`, userID, ActionVisitorIdentityLinked, string(detailsJSON))
+	}
+
+	return rowsAffected, nil
+}
+
+// SearchVisitorIdentities searches visitor identities within a society by name or phone.
+// For gatekeepers, the returned phone is strictly masked.
+func (r *Repository) SearchVisitorIdentities(ctx context.Context, societyID uuid.UUID, search string, callerRole string, limit int) ([]VisitorIdentity, error) {
+	if r.pool == nil {
+		return nil, errors.New("database pool unavailable")
+	}
+
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+
+	search = strings.TrimSpace(search)
+	if search == "" {
+		return []VisitorIdentity{}, nil
+	}
+
+	searchTerm := "%" + search + "%"
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, society_id, phone, full_name, user_id, linked_at, created_at, updated_at
+		FROM society_visitor_identities
+		WHERE society_id = $1 AND (full_name ILIKE $2 OR phone ILIKE $2)
+		ORDER BY updated_at DESC
+		LIMIT $3
+	`, societyID, searchTerm, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search visitor identities: %w", err)
+	}
+	defer rows.Close()
+
+	var identities []VisitorIdentity
+	for rows.Next() {
+		var vi VisitorIdentity
+		if err := rows.Scan(
+			&vi.ID, &vi.SocietyID, &vi.Phone, &vi.FullName, &vi.UserID,
+			&vi.LinkedAt, &vi.CreatedAt, &vi.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan visitor identity: %w", err)
+		}
+		vi.PhoneMasked = auth.MaskPhone(vi.Phone)
+		if callerRole == "GATEKEEPER" {
+			vi.Phone = vi.PhoneMasked
+		}
+		identities = append(identities, vi)
+	}
+
+	if identities == nil {
+		identities = []VisitorIdentity{}
+	}
+	return identities, nil
+}
+
+// ListActiveVisits returns currently checked-in visits in the society for fast departure/checkout.
+// For gatekeepers, visitor phone is strictly masked.
+func (r *Repository) ListActiveVisits(ctx context.Context, societyID uuid.UUID, search string, callerRole string, limit int) ([]Visit, error) {
+	if r.pool == nil {
+		return nil, errors.New("database pool unavailable")
+	}
+
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	var whereClauses []string
+	var args []interface{}
+	argIdx := 1
+
+	whereClauses = append(whereClauses, fmt.Sprintf("v.society_id = $%d", argIdx))
+	args = append(args, societyID)
+	argIdx++
+
+	whereClauses = append(whereClauses, "v.status = 'CHECKED_IN'")
+
+	search = strings.TrimSpace(search)
+	if search != "" {
+		searchTerm := "%" + search + "%"
+		whereClauses = append(whereClauses, fmt.Sprintf("(v.visitor_name ILIKE $%d OR v.visitor_phone ILIKE $%d OR v.vehicle_number ILIKE $%d OR u.unit_identifier ILIKE $%d)", argIdx, argIdx, argIdx, argIdx))
+		args = append(args, searchTerm)
+		argIdx++
+	}
+
+	whereSQL := strings.Join(whereClauses, " AND ")
+	query := fmt.Sprintf(`
+		SELECT 
+			v.id, v.society_id, v.unit_id, u.unit_identifier, b.name AS building_name,
+			v.resident_id, m.first_name || COALESCE(' ' || m.last_name, '') AS resident_name,
+			v.visitor_name, v.visitor_phone, v.visitor_identity_id, v.purpose, v.visit_type, v.status,
+			v.vehicle_number, v.expected_arrival, v.valid_until, v.check_in_at, v.check_out_at,
+			v.entry_gate_id, eg.name AS entry_gate_name,
+			v.exit_gate_id, xg.name AS exit_gate_name,
+			v.rejection_reason, v.created_by, v.created_at, v.updated_at
+		FROM society_visits v
+		JOIN society_units u ON v.unit_id = u.id
+		JOIN society_buildings b ON u.building_id = b.id
+		LEFT JOIN society_members m ON v.resident_id = m.id
+		LEFT JOIN society_gates eg ON v.entry_gate_id = eg.id
+		LEFT JOIN society_gates xg ON v.exit_gate_id = xg.id
+		WHERE %s
+		ORDER BY v.check_in_at DESC
+		LIMIT $%d
+	`, whereSQL, argIdx)
+
+	args = append(args, limit)
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query active visits: %w", err)
+	}
+	defer rows.Close()
+
+	var visits []Visit
+	for rows.Next() {
+		var item Visit
+		var resName, eGate, xGate *string
+		err := rows.Scan(
+			&item.ID, &item.SocietyID, &item.UnitID, &item.UnitIdentifier, &item.BuildingName,
+			&item.ResidentID, &resName,
+			&item.VisitorName, &item.VisitorPhone, &item.VisitorIdentityID, &item.Purpose, &item.VisitType, &item.Status,
+			&item.VehicleNumber, &item.ExpectedArrival, &item.ValidUntil, &item.CheckInAt, &item.CheckOutAt,
+			&item.EntryGateID, &eGate,
+			&item.ExitGateID, &xGate,
+			&item.RejectionReason, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan active visit: %w", err)
+		}
+		item.ResidentName = resName
+		item.EntryGateName = eGate
+		item.ExitGateName = xGate
+		item.VisitorPhoneMasked = auth.MaskPhone(item.VisitorPhone)
+		if callerRole == "GATEKEEPER" {
+			item.VisitorPhone = item.VisitorPhoneMasked
+		}
+		visits = append(visits, item)
+	}
+
+	if visits == nil {
+		visits = []Visit{}
+	}
+	return visits, nil
 }

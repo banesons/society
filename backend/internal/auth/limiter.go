@@ -19,14 +19,18 @@ var (
 
 	// ErrVerifyIPRateLimited is returned when an IP exceeds failed verification attempts.
 	ErrVerifyIPRateLimited = errors.New("too many failed verification attempts from this network, please try again later")
+
+	// ErrPublicPassRateLimited is returned when an IP exceeds public pass status lookup limits.
+	ErrPublicPassRateLimited = errors.New("too many pass lookup requests from this network, please try again later")
 )
 
 const (
-	MaxPhoneRequestsPerHour = 5
-	MaxIPRequestsPerHour    = 10
-	PhoneCooldownSeconds    = 60
-	MaxIPVerifyFailures     = 20
-	VerifyFailureWindow     = 10 * time.Minute
+	MaxPhoneRequestsPerHour       = 5
+	MaxIPRequestsPerHour          = 10
+	PhoneCooldownSeconds          = 60
+	MaxIPVerifyFailures           = 20
+	VerifyFailureWindow           = 10 * time.Minute
+	MaxPublicPassLookupsPerMinute = 60
 )
 
 type phoneRecord struct {
@@ -48,6 +52,7 @@ type RateLimiter struct {
 	phones         map[string]*phoneRecord
 	ips            map[string]*ipRecord
 	verifyFailures map[string]*verifyRecord
+	passLookups    map[string]*ipRecord
 }
 
 // NewRateLimiter creates an in-memory rate limiter.
@@ -56,6 +61,7 @@ func NewRateLimiter() *RateLimiter {
 		phones:         make(map[string]*phoneRecord),
 		ips:            make(map[string]*ipRecord),
 		verifyFailures: make(map[string]*verifyRecord),
+		passLookups:    make(map[string]*ipRecord),
 	}
 }
 
@@ -235,4 +241,45 @@ func (rl *RateLimiter) ResetVerifyIP(ip string) {
 	defer rl.mu.Unlock()
 
 	delete(rl.verifyFailures, ip)
+}
+
+// CheckAndRecordPublicPassIP evaluates whether the client IP has exceeded the public pass status lookup limit (60 requests/minute).
+func (rl *RateLimiter) CheckAndRecordPublicPassIP(ip string) error {
+	if ip == "" {
+		return nil
+	}
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	if ip == "127.0.0.1" || ip == "::1" || ip == "localhost" {
+		return nil
+	}
+
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	rec, exists := rl.passLookups[ip]
+	if !exists {
+		rec = &ipRecord{
+			requestTimes: []time.Time{},
+		}
+		rl.passLookups[ip] = rec
+	}
+
+	oneMinAgo := now.Add(-1 * time.Minute)
+	validTimes := rec.requestTimes[:0]
+	for _, t := range rec.requestTimes {
+		if t.After(oneMinAgo) {
+			validTimes = append(validTimes, t)
+		}
+	}
+	rec.requestTimes = validTimes
+
+	if len(rec.requestTimes) >= MaxPublicPassLookupsPerMinute {
+		return ErrPublicPassRateLimited
+	}
+
+	rec.requestTimes = append(rec.requestTimes, now)
+	return nil
 }

@@ -1,10 +1,16 @@
 import { api, ApiClientError } from '$lib/api/client';
 import type { UserSocietyAssignment } from '$lib/api/society';
 import { deactivateCurrentDevice } from '$lib/push';
+import { toast } from '$lib/toast.svelte';
 
 export interface UserProfile {
 	id: string;
 	phone: string;
+	first_name?: string;
+	last_name?: string;
+	display_name?: string;
+	email?: string;
+	profile_photo_url?: string | null;
 	status: string;
 	platform_roles?: string[];
 	society_assignments?: UserSocietyAssignment[];
@@ -37,7 +43,9 @@ class AuthStore {
 	isLoginOpen = $state<boolean>(false);
 	error = $state<string | null>(null);
 	sessionReplaced = $state<boolean>(false);
+	networkError = $state<boolean>(false);
 	private refreshToken: string | null = null;
+	private refreshPromise: Promise<string | null> | null = null;
 
 	get isSuperAdmin(): boolean {
 		return Boolean(this.user?.platform_roles?.includes('SUPER_ADMIN'));
@@ -70,31 +78,60 @@ class AuthStore {
 		api.setRefreshHandler(() => this.refreshSession());
 	}
 
-	init() {
-		if (typeof window !== 'undefined') {
-			const saved = sessionStorage.getItem('chs_refresh_token');
-			if (saved) {
-				this.refreshToken = saved;
-				this.refreshSession()
-					.then((token) => {
-						if (token) {
-							return this.fetchCurrentUser();
-						}
-					})
-					.catch(() => {
-						this.clearSession();
-					})
-					.finally(() => {
-						this.isLoading = false;
-					});
-				return;
-			}
+	private getSessionStorage(): Storage | null {
+		if (typeof window !== 'undefined' && window.sessionStorage) {
+			return window.sessionStorage;
 		}
-		this.isLoading = false;
+		if (typeof sessionStorage !== 'undefined') {
+			return sessionStorage;
+		}
+		return null;
+	}
+
+	async init(): Promise<void> {
+		const storage = this.getSessionStorage();
+		if (!storage) {
+			this.isLoading = false;
+			return;
+		}
+
+		const saved = storage.getItem('chs_refresh_token');
+		if (!saved) {
+			this.isLoading = false;
+			return;
+		}
+
+		this.refreshToken = saved;
+		this.isLoading = true;
+		this.networkError = false;
+
+		try {
+			const token = await this.refreshSession();
+			if (token) {
+				await this.fetchCurrentUser();
+			}
+		} catch (err: unknown) {
+			if (err instanceof ApiClientError) {
+				if (err.code === 'NETWORK_ERROR' || err.statusCode === 0 || err.statusCode >= 500) {
+					this.networkError = true;
+				}
+			}
+		} finally {
+			this.isLoading = false;
+		}
 	}
 
 	dismissSessionReplacedNotice() {
 		this.sessionReplaced = false;
+	}
+
+	updateProfile(data: Partial<UserProfile>) {
+		if (this.user) {
+			this.user = {
+				...this.user,
+				...data
+			};
+		}
 	}
 
 	async sendOTP(phone: string): Promise<SendOTPResult> {
@@ -110,6 +147,7 @@ class AuthStore {
 	async verifyOTP(phone: string, otp: string): Promise<AuthVerifyResult> {
 		this.error = null;
 		this.isLoading = true;
+		this.networkError = false;
 		const cleanPhone = phone.replace(/\D/g, '');
 		const normalized = cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone;
 		try {
@@ -121,6 +159,9 @@ class AuthStore {
 			this.setTokens(res.access_token, res.refresh_token);
 			this.user = res.user;
 			this.sessionReplaced = Boolean(res.session_replaced);
+			if (res.session_replaced) {
+				toast.info('Signed in successfully. Your oldest session was signed out.');
+			}
 			this.isAuthenticated = true;
 			return res;
 		} catch (err: unknown) {
@@ -136,21 +177,52 @@ class AuthStore {
 	}
 
 	async refreshSession(): Promise<string | null> {
+		// In-flight promise deduplication: ensure concurrent requests reuse the same refresh cycle
+		if (this.refreshPromise) {
+			return this.refreshPromise;
+		}
+
 		if (!this.refreshToken) {
 			this.clearSession();
 			return null;
 		}
 
-		try {
-			const res = await api.post<RefreshResult>('/auth/refresh', {
-				refresh_token: this.refreshToken
-			});
-			this.setTokens(res.access_token, res.refresh_token);
-			return res.access_token;
-		} catch {
-			this.clearSession();
-			return null;
-		}
+		this.refreshPromise = (async () => {
+			try {
+				const res = await api.post<RefreshResult>('/auth/refresh', {
+					refresh_token: this.refreshToken
+				});
+				this.setTokens(res.access_token, res.refresh_token);
+				this.networkError = false;
+				return res.access_token;
+			} catch (err: unknown) {
+				if (err instanceof ApiClientError) {
+					// Authoritative rejection: session revoked or token invalid/reused
+					if (err.statusCode === 401) {
+						const wasReplaced = err.code === 'SESSION_REVOKED';
+						if (wasReplaced) {
+							this.sessionReplaced = true;
+							toast.warning(
+								'Your session has ended because this account was logged into elsewhere.'
+							);
+						}
+						this.clearSession(wasReplaced);
+						return null;
+					}
+					// Network drop or temporary server error: DO NOT clear session
+					if (err.code === 'NETWORK_ERROR' || err.statusCode === 0 || err.statusCode >= 500) {
+						this.networkError = true;
+						return null;
+					}
+				}
+				this.clearSession();
+				return null;
+			} finally {
+				this.refreshPromise = null;
+			}
+		})();
+
+		return this.refreshPromise;
 	}
 
 	async fetchCurrentUser(): Promise<void> {
@@ -158,10 +230,16 @@ class AuthStore {
 			const user = await api.get<UserProfile>('/auth/me');
 			this.user = user;
 			this.isAuthenticated = true;
+			this.networkError = false;
 		} catch (err: unknown) {
-			if (err instanceof ApiClientError && err.statusCode === 401) {
-				this.clearSession();
+			if (err instanceof ApiClientError) {
+				if (err.statusCode === 401) {
+					this.clearSession();
+				} else if (err.code === 'NETWORK_ERROR' || err.statusCode === 0 || err.statusCode >= 500) {
+					this.networkError = true;
+				}
 			}
+			throw err;
 		}
 	}
 
@@ -193,19 +271,23 @@ class AuthStore {
 	private setTokens(accessToken: string, refreshToken: string) {
 		api.setAccessToken(accessToken);
 		this.refreshToken = refreshToken;
-		if (typeof window !== 'undefined') {
-			sessionStorage.setItem('chs_refresh_token', refreshToken);
+		const storage = this.getSessionStorage();
+		if (storage) {
+			storage.setItem('chs_refresh_token', refreshToken);
 		}
 	}
 
-	private clearSession() {
+	private clearSession(preserveReplaced = false) {
 		api.setAccessToken(null);
 		this.refreshToken = null;
 		this.user = null;
 		this.isAuthenticated = false;
-		this.sessionReplaced = false;
-		if (typeof window !== 'undefined') {
-			sessionStorage.removeItem('chs_refresh_token');
+		if (!preserveReplaced) {
+			this.sessionReplaced = false;
+		}
+		const storage = this.getSessionStorage();
+		if (storage) {
+			storage.removeItem('chs_refresh_token');
 		}
 	}
 }

@@ -18,11 +18,15 @@
 	import CheckInDialog from './check-in-dialog.svelte';
 	import CheckOutDialog from './check-out-dialog.svelte';
 	import VisitorTerminal from './visitor-terminal.svelte';
+	import VisitorActiveCheckout from './visitor-active-checkout.svelte';
 	import VisitorApprovalsQueue from './visitor-approvals-queue.svelte';
 	import VisitorHistory from './visitor-history.svelte';
 	import VisitorRegisterDialog from './visitor-register-dialog.svelte';
 	import VisitorPassDialog from './visitor-pass-dialog.svelte';
 	import VisitDetailsDialog from './visit-details-dialog.svelte';
+	import VisitorQRPendingQueue from './visitor-qr-pending-queue.svelte';
+	import GateQRDialog from './gate-qr-dialog.svelte';
+	import { auth } from '$lib/auth.svelte';
 	import {
 		Shield,
 		Sliders,
@@ -41,14 +45,24 @@
 
 	let { societyId }: { societyId: string } = $props();
 
-	type Tab = 'terminal' | 'approvals' | 'history' | 'duty' | 'gates' | 'roster';
+	type Tab =
+		'terminal' | 'active' | 'qr_pending' | 'approvals' | 'history' | 'duty' | 'gates' | 'roster';
 	let activeTab = $state<Tab>('terminal');
+
+	let currentUserRole = $derived.by(() => {
+		const assignment = auth.user?.society_assignments?.find((a) => a.society_id === societyId);
+		if (assignment?.role) return assignment.role;
+		if (auth.user?.platform_roles?.includes('SUPER_ADMIN')) return 'SUPER_ADMIN';
+		return 'RESIDENT';
+	});
+	let isGatekeeper = $derived(currentUserRole === 'GATEKEEPER');
 
 	let gates = $state<Gate[]>([]);
 	let gatekeepers = $state<SocietyAdminAssignment[]>([]);
 	let shifts = $state<GateShift[]>([]);
 	let sessions = $state<GateDutySession[]>([]);
 	let metrics = $state<VisitorDashboardMetrics | null>(null);
+	let pendingQRCount = $state(0);
 
 	let isLoading = $state(true);
 	let error = $state<string | null>(null);
@@ -57,6 +71,9 @@
 	// Dialog states
 	let selectedGateForEdit = $state<Gate | null>(null);
 	let isEditGateOpen = $state(false);
+
+	let selectedGateForQR = $state<Gate | null>(null);
+	let isGateQROpen = $state(false);
 
 	let isAssignGatekeeperOpen = $state(false);
 	let isCreateShiftOpen = $state(false);
@@ -84,23 +101,34 @@
 		shifts = [];
 		sessions = [];
 		metrics = null;
+		pendingQRCount = 0;
 		isLoading = true;
 		error = null;
 
 		try {
-			const [gatesRes, gkRes, shiftsRes, sessRes, metricsRes] = await Promise.all([
+			const [gatesRes, sessRes, metricsRes, pendingRes] = await Promise.all([
 				societyApi.listGates(societyId),
-				societyApi.listGatekeepers(societyId, 'ALL'),
-				societyApi.listShifts(societyId),
 				societyApi.listDutySessions(societyId, { status: 'ALL' }),
-				societyApi.getVisitorDashboard(societyId).catch(() => null)
+				societyApi.getVisitorDashboard(societyId).catch(() => null),
+				societyApi
+					.listPendingQRRegistrations(societyId, { limit: 1 })
+					.catch(() => ({ visits: [], total: 0 }))
 			]);
 
 			gates = gatesRes.gates;
-			gatekeepers = gkRes.gatekeepers;
-			shifts = shiftsRes.shifts;
 			sessions = sessRes.sessions;
 			metrics = metricsRes;
+			pendingQRCount = pendingRes.total;
+
+			// Administrative lists are only loaded for society/platform admins, preventing 403 for gatekeepers
+			if (!isGatekeeper) {
+				const [gkRes, shiftsRes] = await Promise.all([
+					societyApi.listGatekeepers(societyId, 'ALL').catch(() => ({ gatekeepers: [] })),
+					societyApi.listShifts(societyId).catch(() => ({ shifts: [] }))
+				]);
+				gatekeepers = gkRes.gatekeepers;
+				shifts = shiftsRes.shifts;
+			}
 		} catch (err: unknown) {
 			if (err instanceof Error) {
 				error = err.message;
@@ -196,6 +224,19 @@
 		<!-- Action Buttons -->
 		<div class="flex flex-wrap items-center gap-2">
 			{#if activeTab === 'gates'}
+				{#if !isGatekeeper}
+					<Button
+						variant="outline"
+						size="sm"
+						onclick={() => {
+							selectedGateForQR = null;
+							isGateQROpen = true;
+						}}
+					>
+						<QrCode class="mr-1.5 h-3.5 w-3.5" />
+						<span>Society Visitor QR</span>
+					</Button>
+				{/if}
 				<Badge variant="outline" class="border-neutral-200 text-xs text-neutral-600">
 					{gates.length} Gates Configured
 				</Badge>
@@ -321,6 +362,30 @@
 		<button
 			type="button"
 			class="flex items-center gap-2 border-b-2 px-4 py-2.5 whitespace-nowrap transition-colors {activeTab ===
+			'active'
+				? 'border-neutral-900 font-semibold text-neutral-900'
+				: 'border-transparent text-neutral-500 hover:text-neutral-800'}"
+			onclick={() => (activeTab = 'active')}
+		>
+			<LogOut class="h-3.5 w-3.5" />
+			<span>Active Visits / Checkout ({metrics?.currently_inside ?? 0})</span>
+		</button>
+
+		<button
+			type="button"
+			class="flex items-center gap-2 border-b-2 px-4 py-2.5 whitespace-nowrap transition-colors {activeTab ===
+			'qr_pending'
+				? 'border-neutral-900 font-semibold text-neutral-900'
+				: 'border-transparent text-neutral-500 hover:text-neutral-800'}"
+			onclick={() => (activeTab = 'qr_pending')}
+		>
+			<QrCode class="h-3.5 w-3.5" />
+			<span>QR Registrations ({pendingQRCount})</span>
+		</button>
+
+		<button
+			type="button"
+			class="flex items-center gap-2 border-b-2 px-4 py-2.5 whitespace-nowrap transition-colors {activeTab ===
 			'approvals'
 				? 'border-neutral-900 font-semibold text-neutral-900'
 				: 'border-transparent text-neutral-500 hover:text-neutral-800'}"
@@ -356,29 +421,31 @@
 			>
 		</button>
 
-		<button
-			type="button"
-			class="flex items-center gap-2 border-b-2 px-4 py-2.5 whitespace-nowrap transition-colors {activeTab ===
-			'gates'
-				? 'border-neutral-900 font-semibold text-neutral-900'
-				: 'border-transparent text-neutral-500 hover:text-neutral-800'}"
-			onclick={() => (activeTab = 'gates')}
-		>
-			<Sliders class="h-3.5 w-3.5" />
-			<span>Physical Gates ({gates.length})</span>
-		</button>
+		{#if !isGatekeeper}
+			<button
+				type="button"
+				class="flex items-center gap-2 border-b-2 px-4 py-2.5 whitespace-nowrap transition-colors {activeTab ===
+				'gates'
+					? 'border-neutral-900 font-semibold text-neutral-900'
+					: 'border-transparent text-neutral-500 hover:text-neutral-800'}"
+				onclick={() => (activeTab = 'gates')}
+			>
+				<Sliders class="h-3.5 w-3.5" />
+				<span>Physical Gates ({gates.length})</span>
+			</button>
 
-		<button
-			type="button"
-			class="flex items-center gap-2 border-b-2 px-4 py-2.5 whitespace-nowrap transition-colors {activeTab ===
-			'roster'
-				? 'border-neutral-900 font-semibold text-neutral-900'
-				: 'border-transparent text-neutral-500 hover:text-neutral-800'}"
-			onclick={() => (activeTab = 'roster')}
-		>
-			<Users class="h-3.5 w-3.5" />
-			<span>Guard Staff Roster ({gatekeepers.filter((g) => g.status === 'ACTIVE').length})</span>
-		</button>
+			<button
+				type="button"
+				class="flex items-center gap-2 border-b-2 px-4 py-2.5 whitespace-nowrap transition-colors {activeTab ===
+				'roster'
+					? 'border-neutral-900 font-semibold text-neutral-900'
+					: 'border-transparent text-neutral-500 hover:text-neutral-800'}"
+				onclick={() => (activeTab = 'roster')}
+			>
+				<Users class="h-3.5 w-3.5" />
+				<span>Guard Staff Roster ({gatekeepers.filter((g) => g.status === 'ACTIVE').length})</span>
+			</button>
+		{/if}
 	</div>
 
 	<!-- Content Area -->
@@ -410,6 +477,23 @@
 				onRegisterExpected={() => {
 					registerMode = 'expected';
 					isRegisterOpen = true;
+				}}
+			/>
+		{:else if activeTab === 'active'}
+			<!-- Tab 2: Active Visits & Fast Checkout -->
+			<VisitorActiveCheckout
+				{societyId}
+				{gates}
+				onCheckedOut={() => {
+					loadAllData();
+				}}
+			/>
+		{:else if activeTab === 'qr_pending'}
+			<!-- Tab: QR Self-Registrations Awaiting Gatekeeper Admission -->
+			<VisitorQRPendingQueue
+				{societyId}
+				onDecisionMade={() => {
+					loadAllData();
 				}}
 			/>
 		{:else if activeTab === 'approvals'}
@@ -591,17 +675,30 @@
 											{g.required_staff_per_shift} guard / shift
 										</td>
 										<td class="px-4 py-3 text-right">
-											<Button
-												variant="outline"
-												size="sm"
-												onclick={() => {
-													selectedGateForEdit = g;
-													isEditGateOpen = true;
-												}}
-											>
-												<Sliders class="mr-1 h-3 w-3" />
-												<span>Configure</span>
-											</Button>
+											<div class="inline-flex items-center gap-1.5">
+												<Button
+													variant="outline"
+													size="sm"
+													onclick={() => {
+														selectedGateForQR = g;
+														isGateQROpen = true;
+													}}
+												>
+													<QrCode class="mr-1 h-3 w-3" />
+													<span>Gate QR</span>
+												</Button>
+												<Button
+													variant="outline"
+													size="sm"
+													onclick={() => {
+														selectedGateForEdit = g;
+														isEditGateOpen = true;
+													}}
+												>
+													<Sliders class="mr-1 h-3 w-3" />
+													<span>Configure</span>
+												</Button>
+											</div>
 										</td>
 									</tr>
 								{/each}
@@ -780,5 +877,15 @@
 	onClose={() => {
 		isDetailsDialogOpen = false;
 		selectedVisitForDetails = null;
+	}}
+/>
+
+<GateQRDialog
+	{societyId}
+	gate={selectedGateForQR}
+	open={isGateQROpen}
+	onClose={() => {
+		isGateQROpen = false;
+		selectedGateForQR = null;
 	}}
 />

@@ -10,6 +10,7 @@
 	import SocietyRoster from '$lib/components/admin/society-roster.svelte';
 	import RegisterSocietyDialog from '$lib/components/admin/register-society-dialog.svelte';
 	import PlatformDashboard from '$lib/components/dashboard/platform-dashboard.svelte';
+	import { ROUTES } from '$lib/routing';
 	import {
 		Shield,
 		ShieldAlert,
@@ -59,19 +60,12 @@
 	<!-- Top Navigation Back Link -->
 	<div class="flex items-center justify-between">
 		<a
-			href="/"
-			class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 transition-colors hover:text-slate-200"
+			href={ROUTES.APP}
+			class="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-600 transition-colors hover:text-neutral-950"
 		>
 			<ArrowLeft class="h-3.5 w-3.5" />
-			<span>Return to Main Dashboard</span>
+			<span>Back to Dashboard</span>
 		</a>
-
-		<div class="flex items-center gap-2 text-xs">
-			<span class="text-neutral-500">Security Domain:</span>
-			<Badge variant="outline" class="font-mono text-[11px] text-neutral-700">
-				Platform Layer (S02)
-			</Badge>
-		</div>
 	</div>
 
 	<!-- State 1: Authentication / Profile Loading -->
@@ -131,7 +125,7 @@
 				role. Administrative provisioning and audit logging are restricted.
 			</p>
 			<div class="mt-6 flex items-center gap-3">
-				<a href="/">
+				<a href={ROUTES.APP}>
 					<Button variant="outline" size="sm">Back to Dashboard</Button>
 				</a>
 				<Button variant="ghost" size="sm" onclick={() => auth.logout()}>Switch Account</Button>

@@ -96,8 +96,24 @@ Tracks active device sessions, refresh hashes, and device limits.
 - `user_sessions_active_idx` ON `user_sessions(user_id, expires_at, revoked_at)`
 - `user_sessions_refresh_hash_idx` ON `user_sessions(refresh_token_hash)`
 
-**FIFO Session Ordering Policy**:
-Active sessions are queried with `WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW() ORDER BY created_at ASC, id ASC FOR UPDATE`. When session count reaches 2, the earliest `created_at` (with `id ASC` deterministic tie-breaker) is revoked to make room for the new session. No new schema migration was required as `created_at` and `user_sessions_active_idx` natively support this pattern.
+---
+
+## 4. `user_profiles` Table
+
+Stores universal user personal profile attributes, decoupled from society tenant membership and platform roles.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `user_id` | `UUID` | `PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE` | 1:1 user identity mapping |
+| `first_name` | `TEXT` | `NOT NULL DEFAULT ''` | Given name (max 100 chars) |
+| `last_name` | `TEXT` | `NOT NULL DEFAULT ''` | Surname (max 100 chars) |
+| `email` | `TEXT` | `NULL` | Normalized lowercase email address (max 255 chars) |
+| `profile_photo_url` | `TEXT` | `NULL` | Optional reference to portrait avatar |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT NOW()` | Record creation timestamp |
+| `updated_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT NOW()` | Record update timestamp |
+
+**Indexes**:
+- `user_profiles_user_id_idx` ON `user_profiles(user_id)`
 
 ---
 

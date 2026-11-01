@@ -38,7 +38,7 @@
 				<div class="mt-1 space-y-0.5">
 					{#each assignments as assignment (assignment.society_id)}
 						<a
-							href="/society/{assignment.society_id}"
+							href="/app/societies/{assignment.society_id}"
 							onclick={handleSelect}
 							class="flex flex-col rounded-xl px-3 py-2 text-xs text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-neutral-950"
 						>

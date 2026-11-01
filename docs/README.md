@@ -20,7 +20,7 @@ Welcome to the central documentation index for the Cooperative Housing Society (
 - [[architecture/10-members-and-relationships|10 — Members & Relationships Architecture]]: People directory, unit relationship modeling, ownership vs occupancy separation, and history preservation.
 - [[architecture/11-society-designations-and-appointments|11 — Society Designations and Appointments Architecture]]: Society designation catalogue, committee appointments, term preservation, and role segregation.
 - [[architecture/12-gate-foundation-and-staffing|12 — Gate Foundation and Staffing Architecture]]: Operational gate configuration, gatekeeper accounts, shift schedules, and duty sessions.
-- [[architecture/13-development-seed-data|13 — Development Seed Data and Reset Architecture]]: Controlled development dataset, dependency-ordered reset, and demo baseline.
+- [[architecture/13-development-seed-data|13 — Development Seed Data and Reset Architecture]]: Controlled development dataset, strict 2-society baseline, zero-leak test isolation, and dependency-ordered reset.
 - [[architecture/14-gate-visitor-operations|14 — Gate Visitor Operations Architecture]]: Expected visits, walk-ins, resident approvals, hashed passes, and atomic ingress/egress.
 - [[architecture/15-society-communication-announcements|15 — Society Communication Architecture]]: Society communication channel, draft/published/archived lifecycle, audience resolution engine, and read tracking.
 - [[architecture/16-maintenance-foundation|16 — Maintenance Foundation Architecture]]: Society maintenance structure, charge categories, recurring/one-off fee configs, idempotent billing runs, and immutable line items.
@@ -29,6 +29,7 @@ Welcome to the central documentation index for the Cooperative Housing Society (
 - [[architecture/19-audit-and-administration|19 — Audit and Administration Architecture]]: Unified audit trail, server-side pagination, search/filtering, multi-tenant isolation, and metadata redaction.
 - [[architecture/20-notifications|20 — Notifications Architecture]]: Omnichannel delivery (FCM HTTP v1 + Resend), transactional outbox pattern, device registry, and worker lifecycle.
 - [[architecture/21-production-deployment-and-domain-topology|21 — Production Deployment and Domain Topology]]: Production domain society.banesons.com, hosting recommendations, ingress routing, co-location latency principles, and environment specifications.
+- [[architecture/22-configurable-billing-and-pdf-engine|22 — Configurable Billing & PDF Invoice Engine]]: Dynamic bill template designer, AST formula evaluator, SAC codes/GST splits, unit-specific overrides, batch runs, and print-ready PDF generator with CHS watermark.
 
 ## API Documentation
 
@@ -67,6 +68,7 @@ Welcome to the central documentation index for the Cooperative Housing Society (
 - [[database/13-documents-and-records-schema|13 — Documents and Records Database Schema]]: `document_categories`, `society_documents`, `document_versions`, sequential number generator, and version immutability triggers.
 - [[database/14-audit-and-administration-schema|14 — Audit and Administration Database Schema]]: Append-only audit table extension, society reference, immutability trigger, and dual indexes.
 - [[database/15-notifications-schema|15 — Notifications Database Schema]]: `user_devices`, `notifications`, `notification_deliveries`, and `notification_outbox`.
+- [[database/16-configurable-billing-schema|16 — Configurable Billing & PDF Engine Database Schema]]: `maintenance_bill_templates`, `maintenance_template_fields`, `maintenance_charge_heads`, `maintenance_formula_definitions`, `maintenance_unit_billing_overrides`, `maintenance_billing_batches`, `maintenance_batch_units`, and `maintenance_bill_pdf_artifacts`.
 
 ## Security Documentation
 
@@ -108,7 +110,7 @@ Welcome to the central documentation index for the Cooperative Housing Society (
 - [[decisions/018-member-and-relationship-model|ADR 018]]: Society Member and Unit Relationship Model.
 - [[decisions/019-society-designations-and-appointments|ADR 019]]: Society Designations, Committee Appointments, and Role Segregation.
 - [[decisions/020-gate-foundation-and-staffing-operations|ADR 020]]: Gate Foundation, Gatekeeper Roles, and Staffing Operations.
-- [[decisions/021-development-database-reset-and-seed|ADR 021]]: Development Database Reset and Controlled Demo Data Seeding.
+- [[decisions/021-development-database-reset-and-seed|ADR 021]]: Development Database Reset, Controlled Demo Data Seeding, and Strict Two-Society Baseline.
 - [[decisions/022-society-application-shell-and-navigation|ADR 022]]: Society Application Shell and Navigation Architecture.
 - [[decisions/023-visitor-lifecycle-and-gate-operations|ADR 023]]: Visitor Lifecycle and Gate Operations.
 - [[decisions/024-society-communication-and-announcements|ADR 024]]: Society Communication, Announcement Lifecycle, Audience Targeting, and Read Tracking.
@@ -119,6 +121,24 @@ Welcome to the central documentation index for the Cooperative Housing Society (
 - [[decisions/029-notifications|ADR 029]]: Notification System Architecture (Firebase Cloud Messaging + Resend Email).
 - [[decisions/030-client-performance-monitoring|ADR 030]]: Client-Side Performance Monitoring (Firebase Performance).
 - [[decisions/031-production-domain-and-deployment-topology|ADR 031]]: Production Domain Configuration and Deployment Topology (society.banesons.com).
+- [[decisions/032-frontend-application-shell-and-ux-refactor|ADR 032]]: Frontend Application Shell, Dedicated Routing Boundaries, and Administrative UX Refactor.
+- [[decisions/033-role-based-society-navigation-and-functional-ux|ADR 033]]: Role-Based Society Navigation, Feature Gating, and Functional UX.
+- [[decisions/034-authenticated-application-architecture-and-route-separation|ADR 034]]: Authenticated Application Architecture and Route Separation (/app namespace).
+- [[decisions/035-personal-profile-experience-and-identity|ADR 035]]: Premium Editorial Personal Profile Architecture and Identity Integration (/app/profile).
+- [[decisions/036-shared-responsive-modal-system|ADR 036]]: Shared Responsive Modal System and Adaptive Presentation (Desktop Top-Offset & Mobile Bottom Sheet).
+- [[decisions/037-canonical-user-profiles-and-identity-resolution|ADR 037]]: Canonical User Profiles and Identity Resolution Architecture (/app/profile Persistence).
+- [[decisions/038-navigation-rail-and-modular-society-routes|ADR 038]]: Navigation Rail Architecture, Dedicated Notifications Screen, and Modular Society Sub-Routes.
+- [[decisions/039-profile-data-integrity-avatar-persistence-and-backdrop-repair|ADR 039]]: Profile Data Integrity, Canonical Identity Propagation, and Backdrop Repair.
+- [[decisions/040-application-navigation-breadcrumbs-and-account-actions|ADR 040]]: Application Navigation Architecture, Contextual Society Submenu, Hierarchical Breadcrumbs, and Sign-Out Confirmation.
+- [[decisions/041-gatekeeper-experience-visitor-identity-and-activity-timeline|ADR 041]]: Gatekeeper Experience, Unified Visitor Identity, Cross-Gate Lifecycle, and Personal Activity Timeline.
+- [[decisions/042-active-session-visibility-and-profile-refinement|ADR 042]]: Active Session Visibility, Metadata Boundaries, and Profile Presentation Refinement.
+- [[decisions/043-sidebar-collapsibility-and-gatekeeper-workspace-routing|ADR 043]]: Desktop Sidebar Collapsibility, Branding De-duplication, and Gatekeeper Workspace Routing.
+- [[decisions/044-qr-based-visitor-pass-and-gatekeeper-admission|ADR 044]]: QR-Based Visitor Pass, Self-Registration, OTP Verification, and Gatekeeper Admission.
+- [[decisions/045-responsive-application-shell-and-reload-auth-persistence|ADR 045]]: Responsive Application Shell, Operations Hub Redesign, and Reload Auth Persistence.
+- [[decisions/046-progressive-web-app-architecture|ADR 046]]: Progressive Web Application (PWA) Architecture, Manifest Specification, Offline Caching, and Service Worker Lifecycle.
+- [[decisions/047-configurable-billing-template-formula-engine-and-pdf|ADR 047]]: Configurable Maintenance Billing, Formula Engine, and PDF Invoice Generator.
+
+
 
 ## Sprint Trackers
 

@@ -870,7 +870,7 @@ func TestFinancialCorrectnessAndModuleComparison(t *testing.T) {
 		INSERT INTO maintenance_billing_periods (id, society_id, period_name, period_start, period_end, due_date, status, created_by)
 		VALUES (
 			$1, $2, 'Oct 2026 Audit Period',
-			DATE_TRUNC('month', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date)::date,
+			(DATE_TRUNC('month', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date) - INTERVAL '1 month')::date,
 			(DATE_TRUNC('month', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date) + INTERVAL '1 month - 1 day')::date,
 			(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date - INTERVAL '2 days',
 			'ACTIVE', $3

@@ -4,17 +4,17 @@
     "type": "split",
     "children": [
       {
-        "id": "f7bdd157a50d5bcf",
+        "id": "cde88897460ffeb9",
         "type": "tabs",
         "children": [
           {
-            "id": "0412e3a1ab5f7b7e",
+            "id": "368709333d19101a",
             "type": "leaf",
             "state": {
-              "type": "graph",
+              "type": "empty",
               "state": {},
-              "icon": "lucide-git-fork",
-              "title": "Graph view"
+              "icon": "lucide-file",
+              "title": "New tab"
             }
           }
         ]
@@ -181,8 +181,9 @@
       "bases:Create new base": false
     }
   },
-  "active": "0412e3a1ab5f7b7e",
+  "active": "368709333d19101a",
   "lastOpenFiles": [
+    "decisions/044-qr-based-visitor-pass-and-gatekeeper-admission.md",
     "architecture/04-supabase.md",
     "security/06-members-and-relationships-security.md",
     "api/07-members-and-relationships-api.md",
@@ -208,7 +209,6 @@
     "database/02-platform-administration-schema.md",
     "api/03-platform-administration-api.md",
     "architecture/06-platform-administration.md",
-    "decisions/014-platform-audit-trail.md",
     "security",
     "database",
     "api",

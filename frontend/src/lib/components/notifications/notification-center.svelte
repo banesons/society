@@ -31,7 +31,6 @@
 	let pushStatus = $state<'default' | 'granted' | 'denied' | 'unsupported'>('default');
 	let notifications = $state<NotificationItem[]>([]);
 	let unreadCount = $state(0);
-	let totalCount = $state(0);
 	let error = $state<string | null>(null);
 
 	async function loadUnreadCount() {
@@ -53,7 +52,6 @@
 				page: 1
 			});
 			notifications = res.items;
-			totalCount = res.total;
 			unreadCount = res.unread_count;
 		} catch (err: unknown) {
 			error = err instanceof Error ? err.message : 'Failed to load notifications';
@@ -78,6 +76,8 @@
 		}
 	}
 
+	let containerRef = $state<HTMLElement | null>(null);
+
 	function toggleOpen() {
 		isOpen = !isOpen;
 		if (isOpen) {
@@ -88,6 +88,20 @@
 
 	function close() {
 		isOpen = false;
+	}
+
+	function handlePointerDown(event: PointerEvent) {
+		if (!isOpen || !containerRef) return;
+		const path = event.composedPath();
+		if (!path.includes(containerRef)) {
+			close();
+		}
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && isOpen) {
+			close();
+		}
 	}
 
 	async function handleMarkRead(notif: NotificationItem, event?: MouseEvent) {
@@ -203,7 +217,9 @@
 	});
 </script>
 
-<div class="relative">
+<svelte:window onpointerdown={handlePointerDown} onkeydown={handleKeydown} />
+
+<div class="relative" bind:this={containerRef}>
 	<!-- Trigger Button with Unread Badge -->
 	<button
 		type="button"
@@ -222,11 +238,11 @@
 		{/if}
 	</button>
 
-	<!-- Backdrop for mobile/desktop dismiss -->
+	<!-- Backdrop for mobile dismiss -->
 	{#if isOpen}
 		<button
 			type="button"
-			class="backdrop-blur-2xs fixed inset-0 z-40 bg-black/20 transition-opacity sm:bg-transparent"
+			class="backdrop-blur-2xs fixed inset-0 z-40 bg-black/20 transition-opacity sm:hidden"
 			onclick={close}
 			aria-label="Close notification center"
 		></button>
@@ -395,20 +411,24 @@
 			</div>
 
 			<!-- Footer -->
-			{#if totalCount > 0}
-				<div
-					class="flex items-center justify-between border-t border-neutral-100 bg-neutral-50/60 px-5 py-2.5 text-[11px] text-neutral-500"
+			<div
+				class="flex items-center justify-between border-t border-neutral-100 bg-neutral-50/60 px-5 py-2.5 text-[11px] text-neutral-500"
+			>
+				<a
+					href="/app/notifications"
+					onclick={() => (isOpen = false)}
+					class="font-medium text-neutral-900 transition-colors hover:underline"
 				>
-					<span>Total {totalCount} records</span>
-					<button
-						type="button"
-						onclick={fetchNotifications}
-						class="font-medium text-neutral-700 hover:text-neutral-950"
-					>
-						Refresh
-					</button>
-				</div>
-			{/if}
+					Open Full Screen &rarr;
+				</a>
+				<button
+					type="button"
+					onclick={fetchNotifications}
+					class="font-medium text-neutral-600 hover:text-neutral-950"
+				>
+					Refresh
+				</button>
+			</div>
 		</div>
 	{/if}
 </div>

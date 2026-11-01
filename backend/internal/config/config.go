@@ -56,7 +56,7 @@ func Load() *Config {
 	var devTestPhonesStr string
 	var devTestOTP string
 	if strings.ToLower(strings.TrimSpace(env)) != "production" {
-		devTestPhonesStr = getEnv("DEV_TEST_PHONES", "919967089101,918422862001,919820010001,919820010002,919820020001,919822000101")
+		devTestPhonesStr = getEnv("DEV_TEST_PHONES", "919967089101,918422862001,919820010001,919820010002,919820020001,919822000101,919811000101,919822000109,919184228620")
 		devTestOTP = getEnv("DEV_TEST_OTP", "123456")
 	} else {
 		devTestPhonesStr = os.Getenv("DEV_TEST_PHONES")

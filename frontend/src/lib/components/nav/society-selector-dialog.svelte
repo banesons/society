@@ -33,7 +33,11 @@
 		if (onSelect) {
 			onSelect(society);
 		} else {
-			goto(`/society/${society.society_id}`);
+			if (society.role === 'GATEKEEPER') {
+				goto(`/app/societies/${society.society_id}/gate`);
+			} else {
+				goto(`/app/societies/${society.society_id}`);
+			}
 			onClose();
 		}
 	}

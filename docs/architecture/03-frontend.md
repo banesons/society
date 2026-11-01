@@ -88,33 +88,38 @@ Reusable components in `src/lib/components/ui` embody the editorial design princ
 
 ## Route Boundaries & Shell Architecture
 
-The CHS frontend clearly delineates three distinct interface areas:
+Per [[../decisions/032-frontend-application-shell-and-ux-refactor|ADR 032]] and [[../decisions/034-authenticated-application-architecture-and-route-separation|ADR 034]], the CHS frontend strictly separates the public marketing website from the authenticated application surface:
 
-1. **Public & Marketing Surfaces (`/`, `/login`, etc.)**:
-   - Renders the global marketing header with editorial domain menus (`societies`, `governance`, `members`, `gatekeeping`, `compliance`, `about`), diagnostics shortcut, and login status.
-   - Root layout renders global footer.
-2. **Platform Administration Console (`/admin`)**:
-   - Preserves the platform administration interface with Super Admin identity banner, society roster, administrator controls, immutable audit trail, and session revocation.
-   - Retains the global platform header from `+layout.svelte`.
-3. **Dedicated Society Application Shell (`/society/:id` and `/societies/:id`)**:
-   - **Exemption from Global Header/Footer**: Society routes omit the global marketing header and footer in root `+layout.svelte`.
-   - **Canonical Route & Deep Link Compatibility**: `/society/:id` is the canonical route; `/societies/:id` provides permanent HTTP 308 compatibility redirect preserving deep links.
-   - **Dedicated Society Application Header (`SocietyShellHeader`)**:
-     - **Desktop View (`>= 640px`)**:
-       - Left: Minimalist CHS wordmark (`<Logo size="md" />`). No duplicated global marketing links.
-       - Right: Compact current society metadata pill (`{name} · {society_code}`) and single menu trigger button (`aria-expanded`).
-       - Below Header: Generously spaced desktop back-navigation row: `[← Return to Admin Console / Return to Home]` with contextual destination resolution and `Tenant Boundary` badge.
-     - **Mobile View (`< 640px`)**:
-       - Conventional compact app bar with comfortable touch targets (`>= 44x44px`).
-       - Left to Right: Leading tactile `[← Back]` arrow control followed by `<Logo size="sm" />`.
-       - Right: Tactile `[Menu button]` (`aria-label="Open society navigation menu"`).
-       - Contextual leading back button eliminates the need for a duplicate back-navigation row on mobile screens.
-   - **Side Navigation & Account Drawer (`SocietyDrawer`)**:
-     - Responsive right-anchored sheet on desktop, full-width sheet on mobile.
-     - **Group A (Current Society)**: Name, society code (`font-mono`), locality/city/state, status badge, verified operational role (`SOC_ADMIN`).
-     - **Group B (Society Navigation)**: Mapped strictly to operational modules (`Overview`, `Members & Residents`, `Managing Committee`, `Physical Structure`, `Gatekeeping`) with active-route indicator. Unimplemented future modules (`Visitors`, `Maintenance`, `Documents`, `Communications`, `Reports`, `Settings`) are clearly marked as disabled "Upcoming" items without dead links. Sprint numbers are suppressed from ordinary users.
-     - **Group C (Switch Society)**: Available when user holds multiple accessible assignments. For `SUPER_ADMIN`, discovers all active registered societies via `/platform/societies` without requiring prior `SOC_ADMIN` assignment. For Platform `ADMIN`, remains strictly restricted to authenticated `society_assignments` (zero implicit access). Opens `SocietySelectorDialog`.
-     - **Group D (Account & Session)**: Formatted phone (`+91 99670 89101`), role badge, single-device logout, and global multi-device revocation modal.
+1. **Public Marketing Surface (`/`, `/developer`)**:
+   - `/`: Renders public marketing content with editorial typography, value propositions, and a clean public footer. No authenticated administrative links or application state leak into the public header.
+   - `/developer`: Dedicated diagnostics console for platform developers.
+2. **Canonical Authenticated Application Namespace (`/app/*`)**:
+   - `/app`: Canonical authenticated entry point. Redirects authenticated users to `/app/dashboard` and unauthenticated users to `/app/login`.
+   - `/app/dashboard`: Canonical authenticated workspace landing page, displaying accessible societies, assigned roles, notifications, and next actions with real data.
+   - `/app/societies`: Dedicated accessible society selector.
+   - `/app/societies/:id`: Canonical society operational management console wrapped by its layout shell per [[../decisions/022-society-application-shell-and-navigation|ADR 022]] and role-based navigation per [[../decisions/033-role-based-society-navigation-and-functional-ux|ADR 033]].
+   - `/app/admin`: Platform Administration Console (bootstrap, society roster, platform administrators, immutable audit trail, active device session revocation).
+   - `/app/login`: Deliberate unauthenticated entry point supporting safe internal `returnTo` parameters.
+3. **Legacy Route Compatibility & Fragment Preservation**:
+   - `/login` client-redirects to `/app/login`.
+   - `/admin` client-redirects to `/app/admin`.
+   - `/society/:id` and `/societies/:id` client-redirect to `/app/societies/:id`, preserving URL hash fragments (`#resident-maintenance`, etc.).
+   - All `/app/*` routes enforce `noindex, nofollow` to prevent indexing of protected application content.
+3. **Dedicated Authenticated Application Shell (`AppShellHeader`)**:
+   - Excludes all marketing domain links (`societies`, `governance`, `members`, etc.) from the application header.
+   - Left: Minimalist CHS wordmark (`<Logo size="md" />`).
+   - Right: Strictly two persistent interactive controls:
+     1. **Notification Center (`NotificationCenter`)**: Bell icon with real-time unread count, popover drawer, and push registration toggle.
+     2. **Profile / Account Menu**: Desktop avatar button opening an editorial popover with formatted phone, verified role badges, and session management redirect; on mobile viewports, the avatar directly navigates to `/app/profile` without popup overlays.
+     3. **Session & Device Actions**: Single-device sign-out (confirmed via `SignOutDialog`) and multi-device revocation (`LogoutAllDialog`) are anchored inside the Personal Profile view (`/app/profile`).
+   - Removed persistent phone number pills and standalone `Platform Admin` buttons from top header.
+4. **Common Toast Notification System (`src/lib/toast.svelte.ts`)**:
+   - Replaces intrusive full-width banners with a non-layout-shifting toast overlay (`toast.success`, `toast.info`, `toast.warning`, `toast.error`).
+   - Auto-dismisses with configurable timeout, manual close buttons, and ARIA live-region polite/assertive announcements.
+   - When FIFO session replacement occurs ([[../decisions/011-two-device-limit|ADR 011]]), triggers a single concise toast: *"Signed in successfully. Your oldest session was signed out."*
+5. **Application Footer Policy**:
+   - Authenticated application views (`/app`, `/app/admin`, `/society/:id`) completely omit marketing footers, allocating 100% of screen real estate to administrative workflows.
+   - Public marketing footer removes internal architectural labels (`"Documentation-first engineering."`, `"Two-device strict session limit enabled."`).
 
 ## Documented Post-Login Routing Resolution Policy
 
@@ -332,6 +337,46 @@ Per [[../decisions/030-client-performance-monitoring|ADR 030]], the frontend int
 4. **Custom Trace Instrumentation**:
    - `traceOperation<T>(traceName: string, operation: () => Promise<T>): Promise<T>` provides standardized custom tracing for critical operations (such as gate check-ins, maintenance bill generation, and payment allocations).
 
+## Shared Responsive Modal System
+
+Per [[../decisions/036-shared-responsive-modal-system|ADR 036]], CHS Neu standardizes modal dialogs and confirmation sheets on a single reusable component (`src/lib/components/ui/responsive-modal.svelte`):
+
+1. **Desktop & Tablet Contract**:
+   - Fixed top offset: strictly `180px` from the viewport top (`top: 180px;`). It is not vertically centered.
+   - Horizontal centering: `left: 50%; transform: translateX(-50%);`.
+   - Max-width bounding: `w-[min(520px, calc(100vw - 48px))]` with sizes `sm`, `md`, `lg`, and `xl`.
+   - Max-height bounding: `calc(100vh - 220px)` with internal scroll area.
+2. **Mobile Bottom Sheet Contract**:
+   - Fixed bottom anchor: `position: fixed; inset-x: 0; bottom: 0;`.
+   - Safe-area padding: `pb-[max(1.25rem, env(safe-area-inset-bottom))]`.
+   - Max-height bounding: `max-h-[85vh]` with top rounded corners (`rounded-t-[2rem]`) and subtle drag handle.
+3. **Responsive State Management**:
+   - Driven reactively by `screen.isMobile` (`src/lib/screen.svelte.ts`, breakpoint `< 768px`).
+4. **Accessibility Guarantees**:
+   - Full keyboard focus trapping, initial auto-focus, and focus restoration to the triggering element upon closure.
+   - Body scroll locking (`document.body.style.overflow = 'hidden'`) with guaranteed cleanup on close or unmount.
+   - Backdrop dismiss and Escape dismiss when `isDismissible` is active.
+
+---
+
+## Application Navigation Architecture (ADR 040)
+
+Per [[../decisions/040-application-navigation-breadcrumbs-and-account-actions|ADR 040]], CHS Neu organizes navigation responsibilities into three distinct architectural tiers:
+
+1. **Desktop Navigation Rail (`src/lib/components/nav/navigation-rail.svelte`)**:
+   - **General Workspace Mode**: Displays primary workspace links (*Dashboard*, *Societies*, and *Platform Administration* when authorized), keeping personal profile in the sidebar footer identity card.
+   - **Contextual Society Mode (`/app/societies/[id]/*`)**: Automatically expands into the selected tenant's contextual navigation. Displays:
+     - Return link (`← All Societies`).
+     - Society Identity banner (name, code, location, and verified role badge).
+     - Grouped submodules (*Overview*, *People*, *Operations*, *Insights*) with role-based feature gating and exact route-aware active state highlighting.
+2. **Hierarchical Breadcrumbs (`src/lib/components/nav/breadcrumbs.svelte`)**:
+   - Placed below the top header and above primary content (`Workspace / {Society Name} / {Module Name}`).
+   - Dynamically resolves society names from entity state, avoiding raw UUIDs.
+   - Intermediate crumbs are interactive navigation links; the leaf item represents the active page with `aria-current="page"`.
+3. **Sign-Out Confirmation (`src/lib/components/auth/sign-out-dialog.svelte`)**:
+   - Normal single-device sign-out is protected by an explicit confirmation dialog built on `ResponsiveModal`.
+   - Distinct from global session termination (`LogoutAllDialog`).
+
 ## Related Documentation
 - [[01-system-overview|System Overview]]
 - [[../api/01-api-overview|API Overview]]
@@ -339,3 +384,30 @@ Per [[../decisions/030-client-performance-monitoring|ADR 030]], the frontend int
 - [[../decisions/011-two-device-limit|ADR 011: Two-Device Limit with Automatic FIFO Replacement]]
 - [[../decisions/029-notifications|ADR 029: Notification System Architecture]]
 - [[../decisions/030-client-performance-monitoring|ADR 030: Client-Side Performance Monitoring]]
+- [[../decisions/032-frontend-application-shell-and-ux-refactor|ADR 032: Frontend Application Shell and Administrative UX Refactor]]
+- [[../decisions/036-shared-responsive-modal-system|ADR 036: Shared Responsive Modal System and Adaptive Presentation]]
+- [[../decisions/038-navigation-rail-and-modular-society-routes|ADR 038: Navigation Rail Architecture, Dedicated Notifications Screen, and Modular Society Sub-Routes]]
+- [[../decisions/040-application-navigation-breadcrumbs-and-account-actions|ADR 040: Application Navigation Architecture, Contextual Society Submenu, Hierarchical Breadcrumbs, and Sign-Out Confirmation]]
+- [[../decisions/045-responsive-application-shell-and-reload-auth-persistence|ADR 045: Responsive Application Shell, Operations Hub Redesign, and Reload Auth Persistence]]
+
+---
+
+## Responsive Application Shell & In-Flight Auth Refresh Deduplication (ADR 045)
+
+Per [[../decisions/045-responsive-application-shell-and-reload-auth-persistence|ADR 045]]:
+1. **CSS-First Shell Visibility**: Desktop navigation rail uses `hidden md:flex`, while mobile bottom navigation uses `flex md:hidden`. Mobile viewports (< 768px) do not reserve any layout margin or column space for desktop rails, allowing the primary content area to occupy the complete viewport (`min-w-0 w-full overflow-x-hidden`).
+2. **In-Flight Refresh Promise Deduplication**: When page reload triggers parallel authenticated queries, the client intercepts concurrent 401s using a single deduplicated `refreshPromise` in `AuthStore`. This prevents race conditions against backend single-use rotating refresh tokens, ensuring reload persistence without accidental session eviction.
+3. **Operations Hub Information Architecture**: Society dashboard `/app/societies/[id]` is restructured as an editorial operations hub displaying real operational statistics (`GET /societies/{id}/dashboard`), urgent pending registration alerts, modular navigation links, and recent announcements without multi-console bloat.
+
+---
+
+## Progressive Web Application (PWA) & Offline Shell (ADR 046)
+
+Per [[../decisions/046-progressive-web-app-architecture|ADR 046]]:
+1. **Web App Manifest**: Full compliance with W3C Web App Manifest at `/manifest.webmanifest` specifying standalone display mode, theme colors (`#121212`), background colors (`#f3f3f1`), operational shortcuts (Gate, Passes, Announcements), and high-resolution icons (192px, 512px, maskable).
+2. **Unified Service Worker**: `/firebase-messaging-sw.js` is enhanced to handle both Firebase Cloud Messaging (FCM HTTP v1) push events and PWA caching lifecycle:
+   - Pre-caches core brand and offline shell assets.
+   - Network-first navigation with graceful fallback to branded `/offline.html`.
+   - Stale-while-revalidate caching for fonts, icons, and static assets.
+3. **Install Experience**: Boot-level service worker registration in `+layout.svelte` and reactive installation tracking (`pwa.svelte.ts`) allowing users on mobile and desktop browsers to install CHS to their home screen or dock.
+

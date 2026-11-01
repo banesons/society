@@ -1359,3 +1359,135 @@ func (r *Repository) SafeLinkUserMembers(ctx context.Context, userID uuid.UUID, 
 
 	return tx.Commit(ctx)
 }
+
+// UserPersonalProfile represents the unified profile details for an authenticated user.
+type UserPersonalProfile struct {
+	ID        uuid.UUID `json:"id"`
+	Phone     string    `json:"phone"`
+	PhoneRaw  string    `json:"phone_raw"`
+	FirstName string    `json:"first_name"`
+	LastName  string    `json:"last_name"`
+	Email     string    `json:"email"`
+	Status    string    `json:"status"`
+}
+
+// GetUserProfile retrieves the personal profile details for an authenticated user.
+func (r *Repository) GetUserProfile(ctx context.Context, userID uuid.UUID) (*UserPersonalProfile, error) {
+	if r.pool == nil {
+		return nil, errors.New("database pool unavailable")
+	}
+
+	profile := &UserPersonalProfile{
+		ID: userID,
+	}
+
+	// 1. Fetch user account identity
+	err := r.pool.QueryRow(ctx, "SELECT phone, status FROM users WHERE id = $1", userID).
+		Scan(&profile.PhoneRaw, &profile.Status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors.New("user not found")
+		}
+		return nil, fmt.Errorf("failed to load user account: %w", err)
+	}
+	profile.Phone = auth.MaskPhone(profile.PhoneRaw)
+
+	// 2. Fetch latest linked member name & email if any
+	var (
+		firstName *string
+		lastName  *string
+		email     *string
+	)
+	query := `
+		SELECT first_name, last_name, email
+		FROM society_members
+		WHERE user_id = $1 AND status = 'ACTIVE'
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`
+	err = r.pool.QueryRow(ctx, query, userID).Scan(&firstName, &lastName, &email)
+	if err == nil {
+		if firstName != nil {
+			profile.FirstName = *firstName
+		}
+		if lastName != nil {
+			profile.LastName = *lastName
+		}
+		if email != nil {
+			profile.Email = *email
+		}
+	}
+
+	return profile, nil
+}
+
+// UpdateUserProfileParams contains the validated personal profile updates.
+type UpdateUserProfileParams struct {
+	FirstName string  `json:"first_name"`
+	LastName  *string `json:"last_name"`
+	Email     *string `json:"email"`
+}
+
+// UpdateUserProfile updates personal information for the user across their linked member records.
+func (r *Repository) UpdateUserProfile(ctx context.Context, userID uuid.UUID, params UpdateUserProfileParams) (*UserPersonalProfile, error) {
+	if r.pool == nil {
+		return nil, errors.New("database pool unavailable")
+	}
+
+	trimmedFirst := strings.TrimSpace(params.FirstName)
+	if trimmedFirst == "" {
+		return nil, errors.New("first name cannot be empty")
+	}
+	if len(trimmedFirst) > 100 {
+		return nil, errors.New("first name exceeds maximum length")
+	}
+
+	var trimmedLast *string
+	if params.LastName != nil {
+		t := strings.TrimSpace(*params.LastName)
+		if len(t) > 100 {
+			return nil, errors.New("last name exceeds maximum length")
+		}
+		trimmedLast = &t
+	}
+
+	var trimmedEmail *string
+	if params.Email != nil {
+		e := strings.TrimSpace(strings.ToLower(*params.Email))
+		if e != "" {
+			if !strings.Contains(e, "@") || !strings.Contains(e, ".") {
+				return nil, errors.New("invalid email address format")
+			}
+			trimmedEmail = &e
+		}
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Update all active member records belonging to this user
+	updateQuery := `
+		UPDATE society_members
+		SET first_name = $1,
+		    last_name = $2,
+		    email = COALESCE($3, email),
+		    updated_at = NOW()
+		WHERE user_id = $4 AND status = 'ACTIVE'
+	`
+	_, err = tx.Exec(ctx, updateQuery, trimmedFirst, trimmedLast, trimmedEmail, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update linked member profile: %w", err)
+	}
+
+	// Also touch the users table timestamp
+	_, _ = tx.Exec(ctx, "UPDATE users SET updated_at = NOW() WHERE id = $1", userID)
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit profile update: %w", err)
+	}
+
+	return r.GetUserProfile(ctx, userID)
+}

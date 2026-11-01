@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { auth } from '$lib/auth.svelte';
+	import { ROUTES } from '$lib/routing';
 	import Button from '$lib/components/ui/button.svelte';
-	import Badge from '$lib/components/ui/badge.svelte';
 	import {
 		Shield,
 		KeyRound,
@@ -83,36 +83,32 @@
 				<div class="pt-2">
 					{#if auth.isAuthenticated && auth.user}
 						<div class="space-y-3">
+							<a href={ROUTES.APP} class="inline-block">
+								<Button variant="primary" size="md">
+									<span>Go to Dashboard</span>
+									<ArrowRight class="h-3.5 w-3.5" />
+								</Button>
+							</a>
+
 							{#if auth.isSuperAdmin}
-								<a href="/admin" class="inline-block">
-									<Button variant="primary" size="md">
-										<span>Super Admin Console</span>
-										<ArrowRight class="h-3.5 w-3.5" />
+								<a href={ROUTES.ADMIN} class="inline-block">
+									<Button variant="outline" size="md">
+										<Shield class="h-3.5 w-3.5" />
+										<span>Platform Admin</span>
 									</Button>
 								</a>
 							{/if}
 
 							{#if auth.user?.society_assignments && auth.user.society_assignments.length > 0}
 								<a
-									href={`/society/${auth.user.society_assignments[0].society_id}`}
+									href={`/app/societies/${auth.user.society_assignments[0].society_id}`}
 									class="inline-block"
 								>
-									<Button variant={auth.isSuperAdmin ? 'outline' : 'primary'} size="md">
+									<Button variant="outline" size="md">
 										<Building2 class="h-3.5 w-3.5" />
 										<span>Society Console ({auth.user.society_assignments.length})</span>
 									</Button>
 								</a>
-							{/if}
-
-							{#if !auth.isSuperAdmin && (!auth.user?.society_assignments || auth.user.society_assignments.length === 0)}
-								<div class="flex items-center gap-3">
-									<Badge variant="outline" class="px-3 py-1 text-xs">
-										Signed in as {auth.user.phone}
-									</Badge>
-									<a href="/developer" class="editorial-link text-xs font-medium text-neutral-900">
-										Diagnostics &rarr;
-									</a>
-								</div>
 							{/if}
 						</div>
 					{:else}

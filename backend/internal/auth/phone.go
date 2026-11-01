@@ -94,3 +94,24 @@ func FormatDisplayPhone(phone string) string {
 	}
 	return phone
 }
+
+// MaskVisitorPhone masks the national digits of a visitor's phone (e.g., 919830178000 -> +91 98301 *****)
+// to protect visitor privacy on public pass endpoints and gatekeeper views.
+func MaskVisitorPhone(phone string) string {
+	digits := ""
+	for _, ch := range phone {
+		if unicode.IsDigit(ch) {
+			digits += string(ch)
+		}
+	}
+	if len(digits) == 12 && strings.HasPrefix(digits, "91") {
+		return "+91 " + digits[2:7] + " *****"
+	}
+	if len(digits) == 10 {
+		return "+91 " + digits[:5] + " *****"
+	}
+	if len(phone) > 5 {
+		return phone[:len(phone)-5] + "*****"
+	}
+	return phone
+}

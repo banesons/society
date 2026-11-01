@@ -123,6 +123,11 @@ func RegisterWalkInVisitHandler(societyRepo *society.Repository) http.HandlerFun
 			return
 		}
 
+		callerRole, _ := middleware.GetSocietyRole(r.Context())
+		if callerRole == "GATEKEEPER" && visit != nil {
+			visit.VisitorPhone = visit.VisitorPhoneMasked
+		}
+
 		response.Success(w, http.StatusCreated, map[string]interface{}{
 			"visit": visit,
 		}, reqID)
@@ -139,10 +144,12 @@ func ListVisitsHandler(societyRepo *society.Repository) http.HandlerFunc {
 			return
 		}
 
+		callerRole, _ := middleware.GetSocietyRole(r.Context())
 		filter := society.VisitFilter{
-			Status:    r.URL.Query().Get("status"),
-			VisitType: r.URL.Query().Get("visit_type"),
-			Search:    r.URL.Query().Get("search"),
+			Status:     r.URL.Query().Get("status"),
+			VisitType:  r.URL.Query().Get("visit_type"),
+			Search:     r.URL.Query().Get("search"),
+			CallerRole: callerRole,
 		}
 
 		if unitStr := r.URL.Query().Get("unit_id"); unitStr != "" {
@@ -214,7 +221,8 @@ func GetVisitDetailsHandler(societyRepo *society.Repository) http.HandlerFunc {
 			return
 		}
 
-		visit, passes, approvals, events, err := societyRepo.GetVisitDetails(r.Context(), societyID, visitID)
+		callerRole, _ := middleware.GetSocietyRole(r.Context())
+		visit, passes, approvals, events, err := societyRepo.GetVisitDetails(r.Context(), societyID, visitID, callerRole)
 		if err != nil {
 			if errors.Is(err, society.ErrVisitNotFound) {
 				response.Error(w, http.StatusNotFound, "VISIT_NOT_FOUND", "Visit not found in society", reqID)
@@ -270,7 +278,7 @@ func ApproveVisitHandler(societyRepo *society.Repository) http.HandlerFunc {
 			return
 		}
 		if callerRole != "SUPER_ADMIN" && callerRole != society.RoleSocietyAdmin {
-			visit, _, _, _, err := societyRepo.GetVisitDetails(r.Context(), societyID, visitID)
+			visit, _, _, _, err := societyRepo.GetVisitDetails(r.Context(), societyID, visitID, callerRole)
 			if err != nil {
 				response.Error(w, http.StatusNotFound, "VISIT_NOT_FOUND", "Visit not found", reqID)
 				return
@@ -338,7 +346,7 @@ func RejectVisitHandler(societyRepo *society.Repository) http.HandlerFunc {
 			return
 		}
 		if callerRole != "SUPER_ADMIN" && callerRole != society.RoleSocietyAdmin {
-			visit, _, _, _, err := societyRepo.GetVisitDetails(r.Context(), societyID, visitID)
+			visit, _, _, _, err := societyRepo.GetVisitDetails(r.Context(), societyID, visitID, callerRole)
 			if err != nil {
 				response.Error(w, http.StatusNotFound, "VISIT_NOT_FOUND", "Visit not found", reqID)
 				return
@@ -397,12 +405,12 @@ func CancelVisitHandler(societyRepo *society.Repository) http.HandlerFunc {
 
 		callerRole, _ := middleware.GetSocietyRole(r.Context())
 		if callerRole != "SUPER_ADMIN" && callerRole != society.RoleSocietyAdmin {
-			visit, _, _, _, err := societyRepo.GetVisitDetails(r.Context(), societyID, visitID)
+			visit, _, _, _, err := societyRepo.GetVisitDetails(r.Context(), societyID, visitID, callerRole)
 			if err != nil {
 				response.Error(w, http.StatusNotFound, "VISIT_NOT_FOUND", "Visit not found", reqID)
 				return
 			}
-			if visit.CreatedBy != actorID {
+			if visit.CreatedBy == nil || *visit.CreatedBy != actorID {
 				isOccupant, _, err := societyRepo.ValidateUserUnitOccupancy(r.Context(), societyID, visit.UnitID, actorID)
 				if err != nil || !isOccupant {
 					response.Error(w, http.StatusForbidden, "OCCUPANT_UNAUTHORIZED", "Not authorized to cancel this visit", reqID)
@@ -533,6 +541,11 @@ func VerifyVisitorPassHandler(societyRepo *society.Repository) http.HandlerFunc 
 			return
 		}
 
+		callerRole, _ := middleware.GetSocietyRole(r.Context())
+		if callerRole == "GATEKEEPER" && visit != nil {
+			visit.VisitorPhone = visit.VisitorPhoneMasked
+		}
+
 		response.Success(w, http.StatusOK, map[string]interface{}{
 			"pass":  pass,
 			"visit": visit,
@@ -599,6 +612,11 @@ func CheckInVisitorHandler(societyRepo *society.Repository) http.HandlerFunc {
 			return
 		}
 
+		callerRole, _ := middleware.GetSocietyRole(r.Context())
+		if callerRole == "GATEKEEPER" && updatedVisit != nil {
+			updatedVisit.VisitorPhone = updatedVisit.VisitorPhoneMasked
+		}
+
 		response.Success(w, http.StatusOK, map[string]interface{}{
 			"visit": updatedVisit,
 			"event": event,
@@ -662,6 +680,11 @@ func CheckOutVisitorHandler(societyRepo *society.Repository) http.HandlerFunc {
 				response.Error(w, http.StatusBadRequest, "BAD_REQUEST", err.Error(), reqID)
 			}
 			return
+		}
+
+		callerRole, _ := middleware.GetSocietyRole(r.Context())
+		if callerRole == "GATEKEEPER" && updatedVisit != nil {
+			updatedVisit.VisitorPhone = updatedVisit.VisitorPhoneMasked
 		}
 
 		response.Success(w, http.StatusOK, map[string]interface{}{
@@ -779,6 +802,71 @@ func ListPendingVisitsHandler(societyRepo *society.Repository) http.HandlerFunc 
 
 		response.Success(w, http.StatusOK, map[string]interface{}{
 			"visits": visits,
+		}, reqID)
+	}
+}
+
+// SearchVisitorIdentitiesHandler handles GET /api/v1/societies/{id}/visitors/identities/search
+func SearchVisitorIdentitiesHandler(societyRepo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, ok := middleware.GetSocietyID(r.Context())
+		if !ok {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Missing society context", reqID)
+			return
+		}
+
+		query := r.URL.Query().Get("query")
+		callerRole, _ := middleware.GetSocietyRole(r.Context())
+
+		limit := 20
+		if lStr := r.URL.Query().Get("limit"); lStr != "" {
+			if l, err := strconv.Atoi(lStr); err == nil {
+				limit = l
+			}
+		}
+
+		identities, err := societyRepo.SearchVisitorIdentities(r.Context(), societyID, query, callerRole, limit)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to search visitor identities", reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, map[string]interface{}{
+			"identities": identities,
+		}, reqID)
+	}
+}
+
+// ListActiveVisitsHandler handles GET /api/v1/societies/{id}/visitors/active
+func ListActiveVisitsHandler(societyRepo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, ok := middleware.GetSocietyID(r.Context())
+		if !ok {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Missing society context", reqID)
+			return
+		}
+
+		search := r.URL.Query().Get("search")
+		callerRole, _ := middleware.GetSocietyRole(r.Context())
+
+		limit := 50
+		if lStr := r.URL.Query().Get("limit"); lStr != "" {
+			if l, err := strconv.Atoi(lStr); err == nil {
+				limit = l
+			}
+		}
+
+		visits, err := societyRepo.ListActiveVisits(r.Context(), societyID, search, callerRole, limit)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to retrieve active visits", reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, map[string]interface{}{
+			"visits": visits,
+			"total":  len(visits),
 		}, reqID)
 	}
 }

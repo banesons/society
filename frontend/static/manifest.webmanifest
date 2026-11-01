@@ -1,0 +1,70 @@
+{
+  "id": "/",
+  "name": "Banesons Society",
+  "short_name": "Society",
+  "description": "Cooperative Housing Society cloud operating system for residential governance, gatekeeping, and community operations.",
+  "start_url": "/app/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f3f3f1",
+  "theme_color": "#121212",
+  "categories": ["lifestyle", "utilities", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Operations Hub",
+      "short_name": "Dashboard",
+      "url": "/app/dashboard",
+      "description": "Society operational scorecards, notices, and quick actions"
+    },
+    {
+      "name": "Gate Console",
+      "short_name": "Gate",
+      "url": "/app/gate",
+      "description": "Perimeter security, visitor check-in, and pass verification"
+    },
+    {
+      "name": "Visitor Passes",
+      "short_name": "Passes",
+      "url": "/app/resident-hub",
+      "description": "Issue and manage digital visitor passes"
+    },
+    {
+      "name": "Announcements",
+      "short_name": "Notice Board",
+      "url": "/app/announcements",
+      "description": "Review society announcements and notices"
+    }
+  ]
+}

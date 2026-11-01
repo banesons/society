@@ -102,7 +102,9 @@ graph TD
 Upon completion of the seed command, the following invariants are asserted:
 1. `users` count = 5 (Super Admin + Platform Admin + 3 Gatekeepers).
 2. `platform_roles` count = 2 (1 `SUPER_ADMIN`, 1 `ADMIN`).
-3. `societies` count = 2 (Both `ACTIVE`).
+3. `societies` count = 2 (Both `ACTIVE`):
+   - `SOC-MUM-SRM101` (*Shree Ram Cooperative Housing Society*, Mumbai)
+   - `SOC-PUN-GVR202` (*Greenview Residency*, Pune)
 4. `society_units` count = 37 (25 for Society 1, 12 for Society 2).
 5. `society_gates` count = 3 (2 for Society 1, 1 for Society 2).
 6. `society_gate_sessions` count = 3 (All `status = 'ACTIVE'`, 0 duplicate guards).
@@ -111,7 +113,25 @@ Upon completion of the seed command, the following invariants are asserted:
 
 ---
 
+## 5. Strict Two-Society Invariant & Zero-Leak Test Isolation
+
+The development database must **never** retain more than the 2 canonical societies (`SOC-MUM-SRM101` and `SOC-PUN-GVR202`). Transient or test-generated societies are strictly prohibited from persisting.
+
+### Enforcement Mechanisms:
+1. **Automated Teardown in Integration Tests**:
+   - `backend/internal/server/main_test.go` defines package-level `TestMain(m *testing.M)` hooks.
+   - Automatically executes `testutil.CleanExtraSocieties` before and after test execution runs.
+   - Any transient test societies, synthetic platform admins, or temporary auth sessions created during test runs are cascade-deleted immediately.
+2. **Standalone Cleanup Tool**:
+   - `go run ./cmd/cleanup` provides an instant non-destructive cleanup runner that purges all extra societies and dependent entities while preserving the 2 canonical societies intact.
+3. **Automated Invariant Verification**:
+   - `backend/internal/server/society_invariants_test.go` asserts that the persistent database contains strictly the 2 canonical societies.
+   - `go run ./cmd/verify` asserts that active societies = 2, total units = 37, and platform roles = 2.
+
+---
+
 ## Related Documentation
 - [[../decisions/021-development-database-reset-and-seed|ADR 021: Development Database Reset and Controlled Demo Data Seeding]]
 - [[../decisions/020-gate-foundation-and-staffing-operations|ADR 020: Gate Foundation, Gatekeeper Roles, and Staffing Operations]]
 - [[../sprints/S08-gate-foundation|S08 — Gate Foundation]]
+

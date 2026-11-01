@@ -612,6 +612,113 @@ export const societyApi = {
 		);
 	},
 
+	searchVisitorIdentities(
+		societyId: string,
+		query: string,
+		limit?: number
+	): Promise<{ identities: VisitorIdentity[] }> {
+		return api.get<{ identities: VisitorIdentity[] }>(
+			`/societies/${societyId}/visitors/identities/search`,
+			{ params: { query, limit } }
+		);
+	},
+
+	listActiveVisits(
+		societyId: string,
+		search?: string,
+		limit?: number
+	): Promise<{ visits: Visit[]; total: number }> {
+		return api.get<{ visits: Visit[]; total: number }>(`/societies/${societyId}/visitors/active`, {
+			params: { search, limit }
+		});
+	},
+
+	// S09 Visitor QR Self-Registration and Admission
+	resolvePublicVisitQR(token: string): Promise<PublicQRContext> {
+		return api.get<PublicQRContext>(`/public/visit-qr/${token}`);
+	},
+
+	sendVisitorOTP(
+		phone: string,
+		qrToken: string
+	): Promise<{ message: string; resend_after_seconds: number; otp?: string }> {
+		return api.post<{ message: string; resend_after_seconds: number; otp?: string }>(
+			'/public/visit-qr/send-otp',
+			{ phone, qr_token: qrToken }
+		);
+	},
+
+	verifyVisitorOTP(
+		phone: string,
+		otp: string,
+		qrToken: string
+	): Promise<{ verification_token: string; phone_masked: string; verified: boolean }> {
+		return api.post<{ verification_token: string; phone_masked: string; verified: boolean }>(
+			'/public/visit-qr/verify-otp',
+			{ phone, otp, qr_token: qrToken }
+		);
+	},
+
+	registerVisitorByQR(payload: QRVisitorRegisterPayload): Promise<PublicVisitorPass> {
+		return api.post<PublicVisitorPass>('/public/visit-qr/register', payload);
+	},
+
+	getPublicVisitorPass(passReference: string): Promise<PublicVisitorPass> {
+		return api.get<PublicVisitorPass>(`/public/visit-qr/pass/${passReference}`);
+	},
+
+	listPendingQRRegistrations(
+		societyId: string,
+		params?: { gate_id?: string; search?: string; limit?: number }
+	): Promise<{ pending_registrations: PendingQRVisit[]; total: number }> {
+		return api.get<{ pending_registrations: PendingQRVisit[]; total: number }>(
+			`/societies/${societyId}/visitors/pending-qr`,
+			{ params }
+		);
+	},
+
+	admitQRVisitor(
+		societyId: string,
+		visitId: string,
+		payload: { decision: 'APPROVE' | 'REJECT'; gate_id: string; rejection_reason?: string }
+	): Promise<{ visit: Visit; message: string }> {
+		return api.post<{ visit: Visit; message: string }>(
+			`/societies/${societyId}/visitors/${visitId}/admit-qr`,
+			payload
+		);
+	},
+
+	listGateQRs(societyId: string, gateId?: string): Promise<{ gate_qrs: GateQR[] }> {
+		const endpoint = gateId
+			? `/societies/${societyId}/gates/${gateId}/qr`
+			: `/societies/${societyId}/visitor-qrs`;
+		return api.get<{ gate_qrs: GateQR[] }>(endpoint);
+	},
+
+	createGateQR(societyId: string, payload: { gate_id?: string; label: string }): Promise<GateQR> {
+		const endpoint = payload.gate_id
+			? `/societies/${societyId}/gates/${payload.gate_id}/qr`
+			: `/societies/${societyId}/visitor-qrs`;
+		return api.post<GateQR>(endpoint, payload);
+	},
+
+	revokeGateQR(societyId: string, qrId: string): Promise<{ message: string }> {
+		return api.delete<{ message: string }>(`/societies/${societyId}/visitor-qrs/${qrId}`);
+	},
+
+	rotateGateQR(societyId: string, qrId: string): Promise<GateQR> {
+		return api.post<GateQR>(`/societies/${societyId}/visitor-qrs/${qrId}/rotate`, {});
+	},
+
+	getMyVisitorHistory(
+		params?: { limit?: number; offset?: number } | number
+	): Promise<{ visits: Visit[]; total: number }> {
+		const queryParams = typeof params === 'number' ? { limit: params } : params;
+		return api.get<{ visits: Visit[]; total: number }>('/visitors/my-history', {
+			params: queryParams
+		});
+	},
+
 	// S10 Society Communication Methods
 	createAnnouncement(
 		societyId: string,
@@ -1553,10 +1660,98 @@ export interface EndAppointmentPayload {
 	notes?: string;
 }
 
+// S09 Visitor Identity Model
+export interface VisitorIdentity {
+	id: string;
+	society_id: string;
+	phone: string;
+	phone_masked: string;
+	full_name: string;
+	user_id?: string;
+	linked_at?: string;
+	created_at: string;
+	updated_at: string;
+}
+
+// S09 Gate QR Models
+export interface GateQR {
+	id: string;
+	society_id: string;
+	gate_id?: string;
+	gate_name?: string;
+	token: string;
+	label: string;
+	status: 'ACTIVE' | 'INACTIVE' | 'REVOKED';
+	created_by: string;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface PublicQRContext {
+	token: string;
+	society_id: string;
+	society_name: string;
+	society_code: string;
+	gate_id?: string;
+	gate_name?: string;
+	status: string;
+}
+
+export interface PublicVisitorPass {
+	pass_reference: string;
+	visit_id: string;
+	society_id: string;
+	visitor_name: string;
+	visitor_phone_masked: string;
+	society_name: string;
+	gate_name?: string;
+	unit_identifier?: string;
+	building_name?: string;
+	purpose: string;
+	coming_from?: string;
+	visitor_photo_url?: string;
+	status: string;
+	registered_at: string;
+	check_in_at?: string;
+}
+
+export interface PendingQRVisit {
+	id: string;
+	society_id: string;
+	pass_reference: string;
+	visitor_name: string;
+	visitor_phone: string;
+	visitor_phone_masked: string;
+	visitor_photo_url?: string;
+	purpose: string;
+	coming_from?: string;
+	gate_id?: string;
+	gate_name?: string;
+	unit_id?: string;
+	unit_identifier?: string;
+	building_name?: string;
+	status: string;
+	created_at: string;
+}
+
+export interface QRVisitorRegisterPayload {
+	qr_token: string;
+	full_name: string;
+	phone: string;
+	verification_token: string;
+	purpose: string;
+	purpose_other?: string;
+	coming_from?: string;
+	visitor_photo_url?: string;
+	unit_id?: string;
+	vehicle_number?: string;
+}
+
 // S09 Visitor Models
 export interface Visit {
 	id: string;
 	society_id: string;
+	society_name?: string;
 	unit_id: string;
 	unit_identifier: string;
 	building_name: string;
@@ -1565,10 +1760,16 @@ export interface Visit {
 	visitor_name: string;
 	visitor_phone: string;
 	visitor_phone_masked: string;
+	visitor_identity_id?: string;
+	visitor_photo_url?: string;
+	coming_from?: string;
+	pass_reference?: string;
+	qr_id?: string;
 	purpose: string;
-	visit_type: 'EXPECTED' | 'WALK_IN';
+	visit_type: 'EXPECTED' | 'WALK_IN' | 'QR_SELF_REGISTER';
 	status:
 		| 'PENDING_APPROVAL'
+		| 'REGISTERED_PENDING_GATE_VERIFICATION'
 		| 'APPROVED'
 		| 'REJECTED'
 		| 'CHECKED_IN'

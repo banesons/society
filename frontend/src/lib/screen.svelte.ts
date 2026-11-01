@@ -32,9 +32,14 @@ class ScreenStore {
 
 	constructor() {
 		if (typeof window !== 'undefined') {
-			window.addEventListener('resize', () => {
+			const update = () => {
 				this.width = window.innerWidth;
-			});
+			};
+			window.addEventListener('resize', update, { passive: true });
+			if (window.matchMedia) {
+				const mql = window.matchMedia('(max-width: 767px)');
+				mql.addEventListener('change', update);
+			}
 		}
 	}
 }

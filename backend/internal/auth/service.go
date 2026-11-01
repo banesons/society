@@ -2,9 +2,18 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,20 +67,90 @@ type TokenRefreshResult struct {
 	ExpiresIn    int64  `json:"expires_in"`
 }
 
+// ActiveSessionInfo contains client-safe metadata for active session management.
+type ActiveSessionInfo struct {
+	ID           uuid.UUID `json:"id"`
+	DeviceLabel  string    `json:"device_label"`
+	Browser      string    `json:"browser"`
+	OS           string    `json:"os"`
+	IsCurrent    bool      `json:"is_current"`
+	CreatedAt    time.Time `json:"created_at"`
+	LastActiveAt time.Time `json:"last_active_at"`
+}
+
+// ParseUserAgent derives human-readable device, browser, and OS labels without fabricating values.
+func ParseUserAgent(ua string) (deviceLabel, browser, os string) {
+	uaClean := strings.TrimSpace(ua)
+	if uaClean == "" {
+		return "Unknown Device", "Unknown", "Unknown"
+	}
+
+	// Detect OS
+	switch {
+	case strings.Contains(uaClean, "iPhone") || strings.Contains(uaClean, "iPad") || strings.Contains(uaClean, "iOS"):
+		os = "iOS"
+	case strings.Contains(uaClean, "Macintosh") || strings.Contains(uaClean, "Mac OS X"):
+		os = "macOS"
+	case strings.Contains(uaClean, "Android"):
+		os = "Android"
+	case strings.Contains(uaClean, "Windows"):
+		os = "Windows"
+	case strings.Contains(uaClean, "Linux"):
+		os = "Linux"
+	default:
+		os = "Unknown"
+	}
+
+	// Detect Browser
+	switch {
+	case strings.Contains(uaClean, "Edg/") || strings.Contains(uaClean, "Edge/"):
+		browser = "Edge"
+	case strings.Contains(uaClean, "Chrome/") || strings.Contains(uaClean, "CriOS/"):
+		browser = "Chrome"
+	case strings.Contains(uaClean, "Firefox/") || strings.Contains(uaClean, "FxiOS/"):
+		browser = "Firefox"
+	case strings.Contains(uaClean, "Safari/") && !strings.Contains(uaClean, "Chrome") && !strings.Contains(uaClean, "Chromium"):
+		browser = "Safari"
+	case strings.Contains(uaClean, "curl/") || strings.Contains(uaClean, "PostmanRuntime"):
+		browser = "API Client"
+	default:
+		if strings.Contains(uaClean, "Mobile") {
+			browser = "Mobile Browser"
+		} else {
+			browser = "Browser"
+		}
+	}
+
+	if os != "Unknown" && browser != "Browser" && browser != "Unknown" {
+		deviceLabel = fmt.Sprintf("%s on %s", browser, os)
+	} else if os != "Unknown" {
+		deviceLabel = fmt.Sprintf("%s Device", os)
+	} else if browser != "Unknown" {
+		deviceLabel = browser
+	} else {
+		deviceLabel = "Unknown Device"
+	}
+
+	return deviceLabel, browser, os
+}
+
 // ServiceConfig contains runtime configuration for the authentication service.
 type ServiceConfig struct {
-	DevTestPhones []string
-	DevTestOTP    string
+	DevTestPhones      []string
+	DevTestOTP         string
+	VerificationSecret string
 }
 
 // Service coordinates all authentication domain workflows.
 type Service struct {
-	pool         *pgxpool.Pool
-	tokenManager *TokenManager
-	smsProvider  sms.Provider
-	rateLimiter  *RateLimiter
-	config       ServiceConfig
-	logger       *slog.Logger
+	pool                       *pgxpool.Pool
+	tokenManager               *TokenManager
+	smsProvider                sms.Provider
+	rateLimiter                *RateLimiter
+	config                     ServiceConfig
+	logger                     *slog.Logger
+	consumedVerificationNonces sync.Map
+	ephemeralSecret            []byte
 }
 
 // NewService initializes an authentication service instance.
@@ -83,14 +162,24 @@ func NewService(
 	cfg ServiceConfig,
 	logger *slog.Logger,
 ) *Service {
-	return &Service{
-		pool:         pool,
-		tokenManager: tm,
-		smsProvider:  smsProvider,
-		rateLimiter:  limiter,
-		config:       cfg,
-		logger:       logger,
+	ephemeral := make([]byte, 32)
+	if _, err := rand.Read(ephemeral); err != nil {
+		ephemeral = nil
 	}
+	return &Service{
+		pool:            pool,
+		tokenManager:    tm,
+		smsProvider:     smsProvider,
+		rateLimiter:     limiter,
+		config:          cfg,
+		logger:          logger,
+		ephemeralSecret: ephemeral,
+	}
+}
+
+// RateLimiter returns the underlying rate limiter instance.
+func (s *Service) RateLimiter() *RateLimiter {
+	return s.rateLimiter
 }
 
 // SendOTP normalizes the phone number, checks rate limits, generates/stores the OTP, and dispatches SMS.
@@ -362,6 +451,17 @@ func (s *Service) VerifyOTP(ctx context.Context, rawPhone, candidateOTP, userAge
 				slog.String("replacement_session_id", sessionID.String()),
 				slog.String("reason", "FIFO_SESSION_LIMIT"),
 			)
+
+			auditDetails := map[string]interface{}{
+				"reason":                 "FIFO_SESSION_LIMIT",
+				"revoked_session_id":     revID.String(),
+				"replacement_session_id": sessionID.String(),
+			}
+			detailsJSON, _ := json.Marshal(auditDetails)
+			_, _ = s.pool.Exec(ctx, `
+				INSERT INTO platform_audit_logs (actor_id, action, target_user_id, details, client_ip, user_agent)
+				VALUES ($1, 'SESSION_ROTATED', $1, $2, $3, $4)
+			`, user.ID, detailsJSON, clientIP, userAgent)
 		}
 	}
 
@@ -467,14 +567,110 @@ func (s *Service) Logout(ctx context.Context, sessionID uuid.UUID) error {
 	return err
 }
 
-// LogoutAll revokes all active sessions for a user.
+// LogoutAll revokes all active sessions for a user and records a persistent security audit entry.
 func (s *Service) LogoutAll(ctx context.Context, userID uuid.UUID) error {
 	if s.pool == nil {
 		return nil
 	}
 	query := `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`
-	_, err := s.pool.Exec(ctx, query, userID)
+	tag, err := s.pool.Exec(ctx, query, userID)
+	if err == nil && tag.RowsAffected() > 0 {
+		auditDetails := map[string]interface{}{
+			"revoked_count": tag.RowsAffected(),
+		}
+		detailsJSON, _ := json.Marshal(auditDetails)
+		_, _ = s.pool.Exec(ctx, `
+			INSERT INTO platform_audit_logs (actor_id, action, target_user_id, details)
+			VALUES ($1, 'USER_LOGOUT_ALL', $1, $2)
+		`, userID, detailsJSON)
+	}
 	return err
+}
+
+// ListActiveSessions returns the authenticated user's currently active sessions (maximum 2).
+func (s *Service) ListActiveSessions(ctx context.Context, userID, currentSessionID uuid.UUID) ([]ActiveSessionInfo, error) {
+	if s.pool == nil {
+		return nil, errors.New("database pool unavailable")
+	}
+
+	query := `
+		SELECT id, user_agent, created_at, last_active_at
+		FROM user_sessions
+		WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
+		ORDER BY created_at DESC, id DESC
+		LIMIT 2
+	`
+	rows, err := s.pool.Query(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []ActiveSessionInfo
+	for rows.Next() {
+		var (
+			id           uuid.UUID
+			ua           *string
+			createdAt    time.Time
+			lastActiveAt time.Time
+		)
+		if err := rows.Scan(&id, &ua, &createdAt, &lastActiveAt); err != nil {
+			return nil, fmt.Errorf("failed to scan active session: %w", err)
+		}
+
+		uaStr := ""
+		if ua != nil {
+			uaStr = *ua
+		}
+		label, browser, os := ParseUserAgent(uaStr)
+
+		sessions = append(sessions, ActiveSessionInfo{
+			ID:           id,
+			DeviceLabel:  label,
+			Browser:      browser,
+			OS:           os,
+			IsCurrent:    id == currentSessionID,
+			CreatedAt:    createdAt,
+			LastActiveAt: lastActiveAt,
+		})
+	}
+
+	if sessions == nil {
+		sessions = []ActiveSessionInfo{}
+	}
+
+	return sessions, nil
+}
+
+// RevokeSession revokes a specific active session belonging to the user.
+func (s *Service) RevokeSession(ctx context.Context, userID, sessionID uuid.UUID) error {
+	if s.pool == nil {
+		return errors.New("database pool unavailable")
+	}
+
+	query := `
+		UPDATE user_sessions
+		SET revoked_at = NOW()
+		WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+	`
+	tag, err := s.pool.Exec(ctx, query, sessionID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to revoke session: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSessionNotFound
+	}
+
+	auditDetails := map[string]interface{}{
+		"revoked_session_id": sessionID.String(),
+	}
+	detailsJSON, _ := json.Marshal(auditDetails)
+	_, _ = s.pool.Exec(ctx, `
+		INSERT INTO platform_audit_logs (actor_id, action, target_user_id, details)
+		VALUES ($1, 'SESSION_REVOKED', $1, $2)
+	`, userID, detailsJSON)
+
+	return nil
 }
 
 // GetUser loads user details by UUID.
@@ -536,3 +732,352 @@ func (s *Service) ValidateSession(ctx context.Context, userID, sessionID uuid.UU
 
 	return nil
 }
+
+// VisitorPhoneVerificationDuration defines how long an OTP verification token remains valid for registration (15 min).
+const VisitorPhoneVerificationDuration = 15 * time.Minute
+
+// getVerificationHMACKey derives a key for phone verification HMAC tokens.
+// Prioritizes explicit VerificationSecret; otherwise derives via HMAC domain separation
+// from Ed25519 signing seed; otherwise falls back to a process-lifetime ephemeral secret.
+// Never uses a static or guessable hardcoded string.
+func (s *Service) getVerificationHMACKey() []byte {
+	if s.config.VerificationSecret != "" {
+		hash := sha256.Sum256([]byte(s.config.VerificationSecret))
+		return hash[:]
+	}
+	if s.tokenManager != nil && len(s.tokenManager.privateKey) >= 32 {
+		mac := hmac.New(sha256.New, []byte("chs_neu:visitor_verification_hmac_v1"))
+		mac.Write(s.tokenManager.privateKey.Seed())
+		return mac.Sum(nil)
+	}
+	if len(s.ephemeralSecret) >= 32 {
+		return s.ephemeralSecret
+	}
+	return nil
+}
+
+// pruneExpiredNonces iterates consumed nonces and purges entries past their expiration timestamp,
+// ensuring the in-memory map has a bounded memory lifecycle in long-running processes.
+func (s *Service) pruneExpiredNonces(nowUnix int64) {
+	s.consumedVerificationNonces.Range(func(key, value interface{}) bool {
+		if exp, ok := value.(int64); ok && exp < nowUnix {
+			s.consumedVerificationNonces.Delete(key)
+		}
+		return true
+	})
+}
+
+// GeneratePhoneVerificationTokenWithContext issues an opaque HMAC-signed token attesting phone verification,
+// cryptographically bound to a specific QR context and containing a single-use random nonce.
+func (s *Service) GeneratePhoneVerificationTokenWithContext(phone, qrToken string) string {
+	hmacKey := s.getVerificationHMACKey()
+	if len(hmacKey) == 0 {
+		return ""
+	}
+
+	expiresAt := time.Now().Add(VisitorPhoneVerificationDuration).Unix()
+
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		timestamp := time.Now().UnixNano()
+		nonceBytes = []byte(fmt.Sprintf("%x%x", timestamp, expiresAt))
+	}
+	nonceHex := hex.EncodeToString(nonceBytes)
+
+	qrHash := sha256.Sum256([]byte(qrToken))
+	qrHashHex := hex.EncodeToString(qrHash[:8])
+
+	payload := fmt.Sprintf("%s|%s|%s|%d", phone, qrHashHex, nonceHex, expiresAt)
+
+	mac := hmac.New(sha256.New, hmacKey)
+	mac.Write([]byte(payload))
+	sig := hex.EncodeToString(mac.Sum(nil))
+
+	rawToken := fmt.Sprintf("%s|%s", payload, sig)
+	return base64.URLEncoding.EncodeToString([]byte(rawToken))
+}
+
+// GeneratePhoneVerificationToken issues an opaque HMAC-signed token attesting phone verification (backward compatible).
+func (s *Service) GeneratePhoneVerificationToken(phone string) string {
+	return s.GeneratePhoneVerificationTokenWithContext(phone, "")
+}
+
+// ConsumePhoneVerificationToken validates that the token was signed by the server, has not expired,
+// matches the submitted phone number and QR context, and has NOT been consumed in a prior registration.
+// On success, it atomically records the token's nonce as consumed to prevent replay attacks.
+func (s *Service) ConsumePhoneVerificationToken(rawPhone, qrToken, token string) (bool, string) {
+	hmacKey := s.getVerificationHMACKey()
+	if len(hmacKey) == 0 {
+		return false, ""
+	}
+
+	normPhone, err := NormalizePhone(rawPhone)
+	if err != nil {
+		return false, ""
+	}
+
+	decodedBytes, err := base64.URLEncoding.DecodeString(token)
+	if err != nil {
+		return false, ""
+	}
+	parts := strings.Split(string(decodedBytes), "|")
+	nowUnix := time.Now().Unix()
+
+	// Prune expired nonces to maintain bounded memory footprint
+	s.pruneExpiredNonces(nowUnix)
+
+	// 5-part format: phone|qrHashHex|nonceHex|expiresAt|sig
+	if len(parts) == 5 {
+		tokenPhone := parts[0]
+		tokenQRHash := parts[1]
+		tokenNonce := parts[2]
+		expiryStr := parts[3]
+		tokenSig := parts[4]
+
+		expiryUnix, err := strconv.ParseInt(expiryStr, 10, 64)
+		if err != nil || nowUnix > expiryUnix {
+			return false, "" // Expired or malformed
+		}
+
+		if tokenPhone != normPhone {
+			return false, "" // Phone mismatch
+		}
+
+		// Verify QR context binding if token was generated with a QR token
+		if tokenQRHash != "" {
+			expectedQRHash := sha256.Sum256([]byte(qrToken))
+			expectedQRHashHex := hex.EncodeToString(expectedQRHash[:8])
+			if !hmac.Equal([]byte(tokenQRHash), []byte(expectedQRHashHex)) {
+				return false, "" // QR context mismatch
+			}
+		}
+
+		// Verify HMAC signature
+		payload := fmt.Sprintf("%s|%s|%s|%s", tokenPhone, tokenQRHash, tokenNonce, expiryStr)
+		mac := hmac.New(sha256.New, hmacKey)
+		mac.Write([]byte(payload))
+		expectedSig := hex.EncodeToString(mac.Sum(nil))
+
+		if !hmac.Equal([]byte(tokenSig), []byte(expectedSig)) {
+			return false, "" // Invalid signature
+		}
+
+		// Enforce single-use consumption (Replay Protection)
+		if _, loaded := s.consumedVerificationNonces.LoadOrStore(tokenNonce, expiryUnix); loaded {
+			return false, "" // Already consumed (replay detected)
+		}
+
+		return true, normPhone
+	}
+
+	// Legacy 3-part format: phone|expiresAt|sig
+	if len(parts) == 3 {
+		tokenPhone := parts[0]
+		expiryStr := parts[1]
+		tokenSig := parts[2]
+
+		expiryUnix, err := strconv.ParseInt(expiryStr, 10, 64)
+		if err != nil || nowUnix > expiryUnix {
+			return false, ""
+		}
+
+		if tokenPhone != normPhone {
+			return false, ""
+		}
+
+		payload := fmt.Sprintf("%s|%s", tokenPhone, expiryStr)
+		mac := hmac.New(sha256.New, s.getVerificationHMACKey())
+		mac.Write([]byte(payload))
+		expectedSig := hex.EncodeToString(mac.Sum(nil))
+
+		if !hmac.Equal([]byte(tokenSig), []byte(expectedSig)) {
+			return false, ""
+		}
+
+		// Enforce single-use consumption on legacy signature
+		if _, loaded := s.consumedVerificationNonces.LoadOrStore(tokenSig, expiryUnix); loaded {
+			return false, ""
+		}
+
+		return true, normPhone
+	}
+
+	return false, ""
+}
+
+// ValidatePhoneVerificationToken validates that the token was signed by the server, has not expired,
+// and matches the submitted phone number without consuming the token.
+func (s *Service) ValidatePhoneVerificationToken(rawPhone, token string) (bool, string) {
+	hmacKey := s.getVerificationHMACKey()
+	if len(hmacKey) == 0 {
+		return false, ""
+	}
+
+	normPhone, err := NormalizePhone(rawPhone)
+	if err != nil {
+		return false, ""
+	}
+
+	decodedBytes, err := base64.URLEncoding.DecodeString(token)
+	if err != nil {
+		return false, ""
+	}
+	parts := strings.Split(string(decodedBytes), "|")
+	nowUnix := time.Now().Unix()
+
+	if len(parts) == 5 {
+		tokenPhone := parts[0]
+		tokenQRHash := parts[1]
+		tokenNonce := parts[2]
+		expiryStr := parts[3]
+		tokenSig := parts[4]
+
+		expiryUnix, err := strconv.ParseInt(expiryStr, 10, 64)
+		if err != nil || nowUnix > expiryUnix {
+			return false, ""
+		}
+
+		if tokenPhone != normPhone {
+			return false, ""
+		}
+
+		payload := fmt.Sprintf("%s|%s|%s|%s", tokenPhone, tokenQRHash, tokenNonce, expiryStr)
+		mac := hmac.New(sha256.New, hmacKey)
+		mac.Write([]byte(payload))
+		expectedSig := hex.EncodeToString(mac.Sum(nil))
+
+		if !hmac.Equal([]byte(tokenSig), []byte(expectedSig)) {
+			return false, ""
+		}
+
+		return true, normPhone
+	}
+
+	if len(parts) == 3 {
+		tokenPhone := parts[0]
+		expiryStr := parts[1]
+		tokenSig := parts[2]
+
+		expiryUnix, err := strconv.ParseInt(expiryStr, 10, 64)
+		if err != nil || nowUnix > expiryUnix {
+			return false, ""
+		}
+
+		if tokenPhone != normPhone {
+			return false, ""
+		}
+
+		payload := fmt.Sprintf("%s|%s", tokenPhone, expiryStr)
+		mac := hmac.New(sha256.New, hmacKey)
+		mac.Write([]byte(payload))
+		expectedSig := hex.EncodeToString(mac.Sum(nil))
+
+		if !hmac.Equal([]byte(tokenSig), []byte(expectedSig)) {
+			return false, ""
+		}
+
+		return true, normPhone
+	}
+
+	return false, ""
+}
+
+// VerifyVisitorOTPWithContext verifies candidate OTP code for public visitor self-registration
+// without creating a permanent account or user session. Returns an HMAC phone verification token bound to qrToken.
+func (s *Service) VerifyVisitorOTPWithContext(ctx context.Context, rawPhone, candidateOTP, qrToken, clientIP string) (string, string, error) {
+	phone, err := NormalizePhone(rawPhone)
+	if err != nil {
+		return "", "", err
+	}
+
+	if s.rateLimiter != nil {
+		if err := s.rateLimiter.CheckVerifyIP(clientIP); err != nil {
+			return "", "", err
+		}
+	}
+
+	if s.pool == nil {
+		return "", "", fmt.Errorf("database connection unavailable")
+	}
+
+	queryOTP := `
+		SELECT id, otp_hash, attempts, expires_at, consumed_at
+		FROM auth_otps
+		WHERE phone = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	var (
+		otpID      uuid.UUID
+		storedHash string
+		attempts   int
+		expiresAt  time.Time
+		consumedAt *time.Time
+	)
+
+	err = s.pool.QueryRow(ctx, queryOTP, phone).Scan(&otpID, &storedHash, &attempts, &expiresAt, &consumedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			if s.rateLimiter != nil {
+				s.rateLimiter.RecordVerifyFailureIP(clientIP)
+			}
+			return "", "", ErrOTPInvalid
+		}
+		return "", "", fmt.Errorf("failed to query OTP record: %w", err)
+	}
+
+	if consumedAt != nil {
+		if s.rateLimiter != nil {
+			s.rateLimiter.RecordVerifyFailureIP(clientIP)
+		}
+		return "", "", ErrOTPInvalid
+	}
+
+	if time.Now().After(expiresAt) {
+		if s.rateLimiter != nil {
+			s.rateLimiter.RecordVerifyFailureIP(clientIP)
+		}
+		return "", "", ErrOTPExpired
+	}
+
+	if attempts >= MaxOTPVerificationAttempts {
+		if s.rateLimiter != nil {
+			s.rateLimiter.RecordVerifyFailureIP(clientIP)
+		}
+		return "", "", ErrOTPAttemptsExceeded
+	}
+
+	// Validate OTP Hash
+	candidateHash := HashOTP(phone, candidateOTP)
+	if candidateHash != storedHash {
+		if s.rateLimiter != nil {
+			s.rateLimiter.RecordVerifyFailureIP(clientIP)
+		}
+		_, _ = s.pool.Exec(ctx, `UPDATE auth_otps SET attempts = attempts + 1, updated_at = NOW() WHERE id = $1`, otpID)
+		if attempts+1 >= MaxOTPVerificationAttempts {
+			return "", "", ErrOTPAttemptsExceeded
+		}
+		return "", "", ErrOTPInvalid
+	}
+
+	// Reset IP verify failures on successful verification
+	if s.rateLimiter != nil {
+		s.rateLimiter.ResetVerifyIP(clientIP)
+	}
+
+	// Mark consumed
+	_, _ = s.pool.Exec(ctx, `UPDATE auth_otps SET consumed_at = NOW(), updated_at = NOW() WHERE id = $1`, otpID)
+
+	// Issue phone verification token bound to QR context
+	verificationToken := s.GeneratePhoneVerificationTokenWithContext(phone, qrToken)
+	maskedPhone := MaskPhone(phone)
+
+	s.logger.Info("Visitor phone verified via OTP", slog.String("phone", maskedPhone))
+	return verificationToken, maskedPhone, nil
+}
+
+// VerifyVisitorOTP verifies candidate OTP code for public visitor self-registration (backward compatible).
+func (s *Service) VerifyVisitorOTP(ctx context.Context, rawPhone, candidateOTP, clientIP string) (string, string, error) {
+	return s.VerifyVisitorOTPWithContext(ctx, rawPhone, candidateOTP, "", clientIP)
+}
+
