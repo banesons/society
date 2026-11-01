@@ -11,10 +11,14 @@
 		type CollectionRegisterItem,
 		type CollectionSummary,
 		type MaintenanceReceipt,
-		type PaymentMethod
+		type PaymentMethod,
+		type BillingBatch
 	} from '$lib/api/society';
 	import Badge from '$lib/components/ui/badge.svelte';
 	import Button from '$lib/components/ui/button.svelte';
+	import BillArtifactsModal from './bill-artifacts-modal.svelte';
+	import PdfPreviewModal from '$lib/components/ui/pdf-preview-modal.svelte';
+	import { triggerFileDownload } from '$lib/utils';
 	import {
 		Wrench,
 		Plus,
@@ -32,7 +36,13 @@
 		Receipt,
 		RotateCcw,
 		Printer,
-		Search
+		Search,
+		Download,
+		Sparkles,
+		Archive,
+		History,
+		Layers,
+		MoreHorizontal
 	} from '@lucide/svelte';
 
 	interface Props {
@@ -41,8 +51,8 @@
 
 	let { societyId }: Props = $props();
 
-	// Active tab: 'collections' | 'bills' | 'periods' | 'configs' | 'categories'
-	let activeTab = $state<'collections' | 'bills' | 'periods' | 'configs' | 'categories'>(
+	// Active tab: 'collections' | 'bills' | 'batches' | 'periods' | 'configs' | 'categories'
+	let activeTab = $state<'collections' | 'bills' | 'batches' | 'periods' | 'configs' | 'categories'>(
 		'collections'
 	);
 
@@ -56,6 +66,24 @@
 	let periods = $state<MaintenanceBillingPeriod[]>([]);
 	let configs = $state<MaintenanceChargeConfig[]>([]);
 	let categories = $state<MaintenanceChargeCategory[]>([]);
+	let batches = $state<BillingBatch[]>([]);
+	let totalBatches = $state<number>(0);
+	let isLoadingBatches = $state<boolean>(false);
+
+	// PDF and Artifact actions state
+	let downloadingBillPdfId = $state<string | null>(null);
+	let generatingBillPdfId = $state<string | null>(null);
+	let downloadingBatchZipId = $state<string | null>(null);
+	let generatingBatchZipId = $state<string | null>(null);
+
+	// Artifacts Modal state
+	let isArtifactsModalOpen = $state<boolean>(false);
+	let artifactModalBill = $state<{ id: string; bill_number: string } | null>(null);
+
+	// PDF Preview Modal state
+	let isPdfPreviewOpen = $state<boolean>(false);
+	let previewBill = $state<{ id: string; bill_number: string; unit_identifier?: string; total_amount?: number } | null>(null);
+	let activeBillMenuId = $state<string | null>(null);
 
 	// Collections Register states
 	let collections = $state<CollectionRegisterItem[]>([]);
@@ -158,6 +186,7 @@
 			await Promise.all([
 				loadCollections(),
 				loadBills(),
+				loadBatches(),
 				loadPeriods(),
 				loadConfigs(),
 				loadCategories()
@@ -230,6 +259,88 @@
 		} catch (err: unknown) {
 			console.error('Failed to load categories', err);
 		}
+	}
+
+	async function loadBatches() {
+		isLoadingBatches = true;
+		try {
+			const res = await societyApi.listBillingBatches(societyId);
+			batches = res.batches || [];
+			totalBatches = res.batches ? res.batches.length : 0;
+		} catch (err: unknown) {
+			console.error('Failed to load billing batches', err);
+		} finally {
+			isLoadingBatches = false;
+		}
+	}
+
+	async function handleDownloadBillPdf(bill: { id: string; bill_number?: string }) {
+		if (downloadingBillPdfId) return;
+		downloadingBillPdfId = bill.id;
+		try {
+			const blob = await societyApi.downloadBillPdf(societyId, bill.id);
+			triggerFileDownload(blob, `${bill.bill_number || 'bill'}.pdf`);
+		} catch (err: unknown) {
+			console.error('Failed to download bill PDF', err);
+			alert(err instanceof Error ? err.message : 'Failed to download bill PDF');
+		} finally {
+			downloadingBillPdfId = null;
+		}
+	}
+
+	async function handleGenerateBillPdf(bill: { id: string; bill_number?: string }) {
+		if (generatingBillPdfId) return;
+		generatingBillPdfId = bill.id;
+		try {
+			const art = await societyApi.generateBillPdf(societyId, bill.id);
+			alert(`PDF invoice generated successfully (${art.file_name || 'bill.pdf'})`);
+		} catch (err: unknown) {
+			console.error('Failed to generate bill PDF', err);
+			alert(err instanceof Error ? err.message : 'Failed to generate bill PDF');
+		} finally {
+			generatingBillPdfId = null;
+		}
+	}
+
+	async function handleGenerateBatchZip(batch: BillingBatch) {
+		if (generatingBatchZipId) return;
+		generatingBatchZipId = batch.id;
+		try {
+			const art = await societyApi.generateBatchPdfZip(societyId, batch.id);
+			alert(`Batch ZIP generated successfully (${art.file_name || 'batch.zip'})`);
+			await loadBatches();
+		} catch (err: unknown) {
+			console.error('Failed to generate batch PDF ZIP', err);
+			alert(err instanceof Error ? err.message : 'Failed to generate batch PDF ZIP');
+		} finally {
+			generatingBatchZipId = null;
+		}
+	}
+
+	async function handleDownloadBatchZip(batch: BillingBatch) {
+		if (downloadingBatchZipId) return;
+		downloadingBatchZipId = batch.id;
+		try {
+			const blob = await societyApi.downloadBatchZip(societyId, batch.id);
+			const filename = `${batch.batch_number || 'billing-batch'}.zip`;
+			triggerFileDownload(blob, filename);
+		} catch (err: unknown) {
+			console.error('Failed to download batch ZIP', err);
+			alert(err instanceof Error ? err.message : 'Failed to download batch ZIP');
+		} finally {
+			downloadingBatchZipId = null;
+		}
+	}
+
+	function openArtifactsModal(bill: { id: string; bill_number: string }) {
+		artifactModalBill = bill;
+		isArtifactsModalOpen = true;
+	}
+
+	function openBillPreview(bill: { id: string; bill_number: string; unit_identifier?: string; total_amount?: number }) {
+		previewBill = bill;
+		isPdfPreviewOpen = true;
+		activeBillMenuId = null;
 	}
 
 	// Action: Open Bill Details
@@ -657,6 +768,16 @@
 		</button>
 		<button
 			class="flex items-center gap-2 border-b-2 px-4 py-2.5 transition-colors {activeTab ===
+			'batches'
+				? 'border-neutral-950 text-neutral-950'
+				: 'border-transparent text-neutral-500 hover:text-neutral-900'}"
+			onclick={() => (activeTab = 'batches')}
+		>
+			<Layers class="h-3.5 w-3.5" />
+			<span>Batches & ZIPs ({totalBatches})</span>
+		</button>
+		<button
+			class="flex items-center gap-2 border-b-2 px-4 py-2.5 transition-colors {activeTab ===
 			'periods'
 				? 'border-neutral-950 text-neutral-950'
 				: 'border-transparent text-neutral-500 hover:text-neutral-900'}"
@@ -1034,21 +1155,220 @@
 									</td>
 									<td class="px-4 py-3 text-right">
 										<div class="flex items-center justify-end gap-1.5">
-											<Button variant="outline" size="sm" onclick={() => openBillDetail(b.id)}>
-												<Eye class="mr-1 h-3 w-3" />
-												<span>Details</span>
+											<Button
+												variant="outline"
+												size="sm"
+												onclick={() => openBillPreview(b)}
+												title="Preview PDF Document"
+												class="border-[#e2e2de] bg-white text-xs font-medium text-[#121212] hover:bg-neutral-50 shadow-2xs"
+											>
+												<Eye class="mr-1 h-3.5 w-3.5 text-emerald-800" />
+												<span>Preview</span>
 											</Button>
-											{#if b.status !== 'VOIDED'}
-												<Button
-													variant="outline"
-													size="sm"
-													class="text-rose-600 hover:text-rose-700"
-													onclick={() => openVoidModal(b.id)}
+
+											<Button
+												variant="outline"
+												size="sm"
+												disabled={downloadingBillPdfId === b.id}
+												onclick={() => handleDownloadBillPdf(b)}
+												title="Download PDF Invoice"
+												class="border-[#e2e2de] bg-white text-neutral-700 hover:bg-neutral-50 shadow-2xs"
+											>
+												{#if downloadingBillPdfId === b.id}
+													<Loader2 class="h-3.5 w-3.5 animate-spin" />
+												{:else}
+													<Download class="h-3.5 w-3.5" />
+												{/if}
+											</Button>
+
+											<!-- Compact More Actions Menu -->
+											<div class="relative">
+												<button
+													type="button"
+													class="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e2e2de] bg-white text-neutral-600 shadow-2xs transition-colors hover:bg-neutral-100 hover:text-neutral-900 focus:outline-hidden"
+													onclick={() => (activeBillMenuId = activeBillMenuId === b.id ? null : b.id)}
+													title="More bill actions"
+													aria-label="More bill actions"
+													aria-expanded={activeBillMenuId === b.id}
 												>
-													<Ban class="mr-1 h-3 w-3" />
-													<span>Void</span>
-												</Button>
-											{/if}
+													<MoreHorizontal class="h-4 w-4" />
+												</button>
+
+												{#if activeBillMenuId === b.id}
+													<div
+														class="fixed inset-0 z-30"
+														onclick={() => (activeBillMenuId = null)}
+													></div>
+													<div
+														class="absolute right-0 top-full z-40 mt-1 w-44 rounded-xl border border-[#e2e2de] bg-white py-1 shadow-lg text-left"
+													>
+														<button
+															type="button"
+															class="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
+															onclick={() => {
+																activeBillMenuId = null;
+																openBillDetail(b.id);
+															}}
+														>
+															<FileText class="h-3.5 w-3.5 text-neutral-500" />
+															<span>Itemized Breakdown</span>
+														</button>
+														<button
+															type="button"
+															class="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
+															onclick={() => {
+																activeBillMenuId = null;
+																openArtifactsModal(b);
+															}}
+														>
+															<Archive class="h-3.5 w-3.5 text-neutral-500" />
+															<span>Artifact History</span>
+														</button>
+														{#if b.status !== 'VOIDED'}
+															<button
+																type="button"
+																class="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50"
+																onclick={() => {
+																	activeBillMenuId = null;
+																	handleGenerateBillPdf(b);
+																}}
+																disabled={generatingBillPdfId === b.id}
+															>
+																<Sparkles class="h-3.5 w-3.5 text-amber-600" />
+																<span>Regenerate PDF</span>
+															</button>
+															<div class="my-1 border-t border-neutral-100"></div>
+															<button
+																type="button"
+																class="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50"
+																onclick={() => {
+																	activeBillMenuId = null;
+																	openVoidModal(b.id);
+																}}
+															>
+																<Ban class="h-3.5 w-3.5" />
+																<span>Void Bill</span>
+															</button>
+														{/if}
+													</div>
+												{/if}
+											</div>
+										</div>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Tab: Billing Batches & Mass Artifacts -->
+	{#if activeTab === 'batches'}
+		<div class="mt-4">
+			<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<h3 class="text-sm font-semibold text-neutral-900">Billing Batches & Mass Archives</h3>
+					<p class="text-xs text-neutral-500">
+						Track batch invoice generation and export bulk billing ZIP archives.
+					</p>
+				</div>
+				<Button variant="outline" size="sm" onclick={loadBatches} disabled={isLoadingBatches}>
+					<RefreshCw class="mr-1.5 h-3.5 w-3.5 {isLoadingBatches ? 'animate-spin' : ''}" />
+					<span>Refresh Batches</span>
+				</Button>
+			</div>
+
+			{#if isLoadingBatches}
+				<div class="flex items-center justify-center py-12 text-neutral-400">
+					<Loader2 class="mr-2 h-5 w-5 animate-spin" />
+					<span class="text-xs">Loading billing batches...</span>
+				</div>
+			{:else if batches.length === 0}
+				<div class="rounded-xl border border-dashed border-neutral-300 p-8 text-center">
+					<Layers class="mx-auto h-8 w-8 text-neutral-400" />
+					<p class="mt-2 text-sm font-medium text-neutral-900">No billing batches found</p>
+					<p class="mt-1 text-xs text-neutral-500">
+						Batches are created automatically when mass bills are generated from the Billing Periods tab.
+					</p>
+				</div>
+			{:else}
+				<div class="overflow-x-auto rounded-xl border border-neutral-200">
+					<table class="w-full text-left text-xs">
+						<thead class="border-b border-neutral-200 bg-neutral-50 text-[11px] font-medium text-neutral-600">
+							<tr>
+								<th class="px-4 py-3">Batch Number</th>
+								<th class="px-4 py-3">Billing Period</th>
+								<th class="px-4 py-3 text-center">Status</th>
+								<th class="px-4 py-3 text-right">Units</th>
+								<th class="px-4 py-3 text-right">Total Assessed</th>
+								<th class="px-4 py-3">Created At</th>
+								<th class="px-4 py-3 text-right">Actions</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-neutral-200 bg-white">
+							{#each batches as batch (batch.id)}
+								<tr class="hover:bg-neutral-50/60">
+									<td class="px-4 py-3 font-mono font-medium text-neutral-950">
+										{batch.batch_number || batch.id.slice(0, 8)}
+									</td>
+									<td class="px-4 py-3 text-neutral-600">
+										{batch.period_name || batch.billing_period_id?.slice(0, 8) || '—'}
+									</td>
+									<td class="px-4 py-3 text-center">
+										<Badge
+											variant={batch.status === 'FINALIZED' || batch.status === 'GENERATED'
+												? 'success'
+												: batch.status === 'FAILED'
+													? 'destructive'
+													: 'default'}
+											class="font-mono text-[10px]"
+										>
+											{batch.status}
+										</Badge>
+									</td>
+									<td class="px-4 py-3 text-right font-mono text-neutral-800">
+										{batch.successful_unit_count ?? 0} / {batch.total_units_targeted ?? 0}
+									</td>
+									<td class="px-4 py-3 text-right font-semibold text-neutral-950">
+										{formatCurrency(batch.total_amount || 0)}
+									</td>
+									<td class="px-4 py-3 text-neutral-500 font-mono text-[11px]">
+										{batch.created_at ? batch.created_at.slice(0, 16).replace('T', ' ') : '—'}
+									</td>
+									<td class="px-4 py-3 text-right">
+										<div class="flex items-center justify-end gap-1.5">
+											<Button
+												variant="outline"
+												size="sm"
+												disabled={downloadingBatchZipId === batch.id}
+												onclick={() => handleDownloadBatchZip(batch)}
+												title="Download Batch PDF ZIP"
+											>
+												{#if downloadingBatchZipId === batch.id}
+													<Loader2 class="h-3 w-3 animate-spin" />
+													<span>Downloading...</span>
+												{:else}
+													<Download class="mr-1 h-3 w-3" />
+													<span>Download ZIP</span>
+												{/if}
+											</Button>
+											<Button
+												variant="outline"
+												size="sm"
+												disabled={generatingBatchZipId === batch.id}
+												onclick={() => handleGenerateBatchZip(batch)}
+												title="Regenerate Batch ZIP Archive"
+											>
+												{#if generatingBatchZipId === batch.id}
+													<Loader2 class="h-3 w-3 animate-spin" />
+													<span>Generating...</span>
+												{:else}
+													<Sparkles class="mr-1 h-3 w-3 text-amber-600" />
+													<span>Generate ZIP</span>
+												{/if}
+											</Button>
 										</div>
 									</td>
 								</tr>
@@ -1370,7 +1690,60 @@
 				</div>
 			{/if}
 
-			<div class="mt-6 flex justify-end">
+			<div class="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-neutral-100 pt-4">
+				{#if selectedBill}
+					<div class="flex flex-wrap items-center gap-2">
+						<Button
+							variant="primary"
+							size="sm"
+							onclick={() => selectedBill && openBillPreview(selectedBill)}
+							title="Open in-browser PDF preview"
+						>
+							<Eye class="mr-1.5 h-3.5 w-3.5" />
+							<span>Preview PDF</span>
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={downloadingBillPdfId === selectedBill.id}
+							onclick={() => selectedBill && handleDownloadBillPdf(selectedBill)}
+						>
+							{#if downloadingBillPdfId === selectedBill.id}
+								<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
+								<span>Downloading PDF...</span>
+							{:else}
+								<Download class="mr-1.5 h-3.5 w-3.5" />
+								<span>Download PDF</span>
+							{/if}
+						</Button>
+						{#if selectedBill.status !== 'VOIDED'}
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={generatingBillPdfId === selectedBill.id}
+								onclick={() => selectedBill && handleGenerateBillPdf(selectedBill)}
+							>
+								{#if generatingBillPdfId === selectedBill.id}
+									<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
+									<span>Generating...</span>
+								{:else}
+									<Sparkles class="mr-1.5 h-3.5 w-3.5 text-amber-600" />
+									<span>Regenerate PDF</span>
+								{/if}
+							</Button>
+						{/if}
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={() => selectedBill && openArtifactsModal({ id: selectedBill.id, bill_number: selectedBill.bill_number })}
+						>
+							<Archive class="mr-1.5 h-3.5 w-3.5 text-neutral-600" />
+							<span>Artifacts</span>
+						</Button>
+					</div>
+				{:else}
+					<div></div>
+				{/if}
 				<Button variant="outline" size="sm" onclick={() => (isDetailModalOpen = false)}>
 					<span>Close</span>
 				</Button>
@@ -2295,4 +2668,31 @@
 			</div>
 		</div>
 	</div>
+{/if}
+
+{#if isArtifactsModalOpen && artifactModalBill}
+	<BillArtifactsModal
+		isOpen={isArtifactsModalOpen}
+		{societyId}
+		billId={artifactModalBill.id}
+		billNumber={artifactModalBill.bill_number}
+		onClose={() => {
+			isArtifactsModalOpen = false;
+			artifactModalBill = null;
+		}}
+	/>
+{/if}
+
+{#if isPdfPreviewOpen && previewBill}
+	<PdfPreviewModal
+		isOpen={isPdfPreviewOpen}
+		title={`Bill ${previewBill.bill_number}`}
+		subtitle={`${previewBill.unit_identifier || 'Unit'} · ${formatCurrency(previewBill.total_amount || 0)}`}
+		filename={`${previewBill.bill_number}.pdf`}
+		fetchPdf={() => societyApi.downloadBillPdf(societyId, previewBill!.id)}
+		onClose={() => {
+			isPdfPreviewOpen = false;
+			previewBill = null;
+		}}
+	/>
 {/if}

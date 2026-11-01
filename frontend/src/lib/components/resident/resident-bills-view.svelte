@@ -16,8 +16,11 @@
 		Eye,
 		X,
 		FileText,
-		Printer
+		Printer,
+		Download
 	} from '@lucide/svelte';
+	import { triggerFileDownload } from '$lib/utils';
+	import PdfPreviewModal from '$lib/components/ui/pdf-preview-modal.svelte';
 
 	interface Props {
 		societyId: string;
@@ -45,6 +48,33 @@
 	let selectedReceipt = $state<MaintenanceReceipt | null>(null);
 	let isLoadingReceipt = $state<boolean>(false);
 	let receiptError = $state<string | null>(null);
+
+	// PDF Download State
+	let downloadingPdfId = $state<string | null>(null);
+
+	// PDF Preview State
+	let isPreviewOpen = $state<boolean>(false);
+	let previewBill = $state<{ id: string; bill_number?: string; total_amount?: number; period_name?: string } | null>(null);
+
+	function openBillPreview(bill: { id: string; bill_number?: string; total_amount?: number; period_name?: string }) {
+		previewBill = bill;
+		isPreviewOpen = true;
+	}
+
+	async function downloadBillPdf(bill: { id: string; bill_number?: string }) {
+		if (downloadingPdfId) return;
+		downloadingPdfId = bill.id;
+		try {
+			const blob = await societyApi.downloadResidentBillPdf(societyId, bill.id);
+			const filename = `${bill.bill_number || 'maintenance-bill'}.pdf`;
+			triggerFileDownload(blob, filename);
+		} catch (err: unknown) {
+			console.error('Failed to download bill PDF', err);
+			alert(err instanceof Error ? err.message : 'Failed to download bill PDF');
+		} finally {
+			downloadingPdfId = null;
+		}
+	}
 
 	async function loadAllResidentData() {
 		if (!societyId) return;
@@ -264,10 +294,44 @@
 									</Badge>
 								</td>
 								<td class="px-4 py-3 text-right">
-									<Button variant="outline" size="sm" onclick={() => openBillDetail(b.id)}>
-										<Eye class="mr-1 h-3 w-3" />
-										<span>Breakdown</span>
-									</Button>
+									<div class="flex items-center justify-end gap-1.5">
+										<Button
+											variant="outline"
+											size="sm"
+											onclick={() => openBillPreview(b)}
+											title="View official Bill in PDF viewer"
+											class="border-[#e2e2de] bg-white text-xs font-medium text-[#121212] shadow-2xs hover:bg-neutral-50"
+										>
+											<FileText class="mr-1 h-3.5 w-3.5 text-emerald-800" />
+											<span>View Bill</span>
+										</Button>
+
+										<Button
+											variant="outline"
+											size="sm"
+											disabled={downloadingPdfId === b.id}
+											onclick={() => downloadBillPdf(b)}
+											title="Download PDF Invoice"
+											class="border-[#e2e2de] bg-white text-neutral-700 shadow-2xs hover:bg-neutral-50"
+										>
+											{#if downloadingPdfId === b.id}
+												<Loader2 class="h-3.5 w-3.5 animate-spin" />
+											{:else}
+												<Download class="h-3.5 w-3.5" />
+											{/if}
+										</Button>
+
+										<Button
+											variant="outline"
+											size="sm"
+											onclick={() => openBillDetail(b.id)}
+											title="View itemized breakdown"
+											class="border-[#e2e2de] bg-white text-xs text-neutral-700 shadow-2xs hover:bg-neutral-50"
+										>
+											<Eye class="mr-1 h-3 w-3" />
+											<span>Breakdown</span>
+										</Button>
+									</div>
 								</td>
 							</tr>
 						{/each}
@@ -476,7 +540,36 @@
 				</div>
 			{/if}
 
-			<div class="mt-6 flex justify-end">
+			<div class="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-neutral-100 pt-4">
+				{#if selectedBill}
+					<div class="flex items-center gap-2">
+						<Button
+							variant="primary"
+							size="sm"
+							onclick={() => selectedBill && openBillPreview(selectedBill)}
+							title="Preview official PDF document"
+						>
+							<FileText class="mr-1.5 h-3.5 w-3.5" />
+							<span>View Bill PDF</span>
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={downloadingPdfId === selectedBill.id}
+							onclick={() => selectedBill && downloadBillPdf(selectedBill)}
+						>
+							{#if downloadingPdfId === selectedBill.id}
+								<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
+								<span>Downloading PDF...</span>
+							{:else}
+								<Download class="mr-1.5 h-3.5 w-3.5" />
+								<span>Download PDF</span>
+							{/if}
+						</Button>
+					</div>
+				{:else}
+					<div></div>
+				{/if}
 				<Button variant="outline" size="sm" onclick={() => (isDetailModalOpen = false)}>
 					<span>Close</span>
 				</Button>
@@ -628,4 +721,18 @@
 			{/if}
 		</div>
 	</div>
+{/if}
+
+{#if isPreviewOpen && previewBill}
+	<PdfPreviewModal
+		isOpen={isPreviewOpen}
+		title={previewBill.bill_number ? `Maintenance Bill — ${previewBill.bill_number}` : 'Maintenance Bill'}
+		subtitle={previewBill.period_name ? `${previewBill.period_name} · ${formatCurrency(previewBill.total_amount || 0)}` : ''}
+		filename={`${previewBill.bill_number || 'maintenance-bill'}.pdf`}
+		fetchPdf={() => societyApi.downloadResidentBillPdf(societyId, previewBill!.id)}
+		onClose={() => {
+			isPreviewOpen = false;
+			previewBill = null;
+		}}
+	/>
 {/if}

@@ -1191,6 +1191,58 @@ export const societyApi = {
 
 	getSocietyAuditLog(societyId: string, eventId: string): Promise<{ item: AuditLogItem }> {
 		return api.get<{ item: AuditLogItem }>(`/societies/${societyId}/audit-logs/${eventId}`);
+	},
+
+	// Configurable Billing PDF & Batch Artifacts
+	generateBillPdf(societyId: string, billId: string): Promise<MaintenanceBillPDFArtifact> {
+		return api.post<MaintenanceBillPDFArtifact>(
+			`/societies/${societyId}/billing/bills/${billId}/pdf`
+		);
+	},
+
+	downloadBillPdf(societyId: string, billId: string): Promise<Blob> {
+		return api.requestBlob(`/societies/${societyId}/billing/bills/${billId}/pdf`);
+	},
+
+	downloadResidentBillPdf(societyId: string, billId: string): Promise<Blob> {
+		return api.requestBlob(`/societies/${societyId}/maintenance/my-bills/${billId}/pdf`);
+	},
+
+	generateBatchPdfZip(societyId: string, batchId: string): Promise<MaintenanceBillPDFArtifact> {
+		return api.post<MaintenanceBillPDFArtifact>(
+			`/societies/${societyId}/billing/batches/${batchId}/pdf`
+		);
+	},
+
+	downloadBatchZip(societyId: string, batchId: string): Promise<Blob> {
+		return api.requestBlob(`/societies/${societyId}/billing/batches/${batchId}/pdf`);
+	},
+
+	listBillArtifacts(
+		societyId: string,
+		billId: string
+	): Promise<{ artifacts: MaintenanceBillPDFArtifact[] }> {
+		return api.get<{ artifacts: MaintenanceBillPDFArtifact[] }>(
+			`/societies/${societyId}/billing/bills/${billId}/artifacts`
+		);
+	},
+
+	getArtifactDetails(societyId: string, artifactId: string): Promise<MaintenanceBillPDFArtifact> {
+		return api.get<MaintenanceBillPDFArtifact>(
+			`/societies/${societyId}/billing/artifacts/${artifactId}`
+		);
+	},
+
+	downloadArtifact(societyId: string, artifactId: string): Promise<Blob> {
+		return api.requestBlob(`/societies/${societyId}/billing/artifacts/${artifactId}?download=true`);
+	},
+
+	listBillingBatches(societyId: string): Promise<{ batches: BillingBatch[] }> {
+		return api.get<{ batches: BillingBatch[] }>(`/societies/${societyId}/billing/batches`);
+	},
+
+	getBillingBatch(societyId: string, batchId: string): Promise<{ batch: BillingBatch }> {
+		return api.get<{ batch: BillingBatch }>(`/societies/${societyId}/billing/batches/${batchId}`);
 	}
 };
 
@@ -2372,4 +2424,41 @@ export interface DocumentStorageMetrics {
 	archived_documents: number;
 	total_versions: number;
 	total_stored_bytes: number;
+}
+
+// Configurable Billing PDF & Artifact Models
+export interface MaintenanceBillPDFArtifact {
+	id: string;
+	society_id: string;
+	bill_id?: string | null;
+	batch_id?: string | null;
+	artifact_type: 'SINGLE_BILL_PDF' | 'BATCH_COMBINED_PDF' | 'BATCH_ZIP_ARCHIVE';
+	file_name: string;
+	storage_path: string;
+	file_size_bytes: number;
+	sha256_checksum: string;
+	mime_type: string;
+	has_watermark: boolean;
+	created_at: string;
+}
+
+export interface BillingBatch {
+	id: string;
+	society_id: string;
+	billing_period_id: string;
+	template_id?: string | null;
+	batch_number: string;
+	batch_name: string;
+	total_units_targeted: number;
+	successful_unit_count: number;
+	failed_unit_count: number;
+	total_amount: number;
+	status: 'DRAFT_PREVIEW' | 'PROCESSING' | 'GENERATED' | 'FINALIZED' | 'FAILED' | string;
+	created_by: string;
+	finalized_by?: string | null;
+	finalized_at?: string | null;
+	notes?: string | null;
+	period_name?: string | null;
+	created_at: string;
+	updated_at: string;
 }

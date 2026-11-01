@@ -3,7 +3,9 @@ import {
 	societyApi,
 	type SocietyItem,
 	type CreateSocietyPayload,
-	type DeparturePreviewResponse
+	type DeparturePreviewResponse,
+	type MaintenanceBillPDFArtifact,
+	type BillingBatch
 } from './society';
 import { api, ApiClientError } from './client';
 
@@ -1116,6 +1118,199 @@ describe('Society Management Frontend API', () => {
 			expect(getResidentDetailSpy).toHaveBeenCalledWith(
 				`/societies/${socId}/maintenance/my-bills/${billId}`
 			);
+		});
+	});
+
+	describe('Phase 6.1: Configurable Billing PDF and Batch Artifacts API', () => {
+		const socId = 'soc-pdf-001';
+		const billId = 'bill-pdf-001';
+		const batchId = 'batch-pdf-001';
+		const artifactId = 'art-pdf-001';
+
+		it('generateBillPdf calls POST /societies/{id}/billing/bills/{billId}/pdf', async () => {
+			const mockArtifact: MaintenanceBillPDFArtifact = {
+				id: artifactId,
+				society_id: socId,
+				bill_id: billId,
+				artifact_type: 'SINGLE_BILL_PDF',
+				file_name: 'bill-001.pdf',
+				file_size_bytes: 45000,
+				mime_type: 'application/pdf',
+				storage_path: 'billing/soc-pdf-001/bills/bill-001.pdf',
+				sha256_checksum: 'abcdef123456',
+				has_watermark: false,
+				created_at: '2026-11-01T12:00:00Z'
+			};
+			const postSpy = vi.spyOn(api, 'post').mockResolvedValue(mockArtifact);
+			const res = await societyApi.generateBillPdf(socId, billId);
+
+			expect(postSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/bills/${billId}/pdf`);
+			expect(res.file_name).toBe('bill-001.pdf');
+		});
+
+		it('downloadBillPdf calls requestBlob with GET /societies/{id}/billing/bills/{billId}/pdf', async () => {
+			const mockBlob = new Blob(['%PDF-1.4 invoice content'], { type: 'application/pdf' });
+			const blobSpy = vi.spyOn(api, 'requestBlob').mockResolvedValue(mockBlob);
+
+			const blob = await societyApi.downloadBillPdf(socId, billId);
+
+			expect(blobSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/bills/${billId}/pdf`);
+			expect(blob).toBe(mockBlob);
+		});
+
+		it('downloadResidentBillPdf calls requestBlob with GET /societies/{id}/maintenance/my-bills/{billId}/pdf', async () => {
+			const mockBlob = new Blob(['%PDF-1.4 resident invoice content'], { type: 'application/pdf' });
+			const blobSpy = vi.spyOn(api, 'requestBlob').mockResolvedValue(mockBlob);
+
+			const blob = await societyApi.downloadResidentBillPdf(socId, billId);
+
+			expect(blobSpy).toHaveBeenCalledWith(
+				`/societies/${socId}/maintenance/my-bills/${billId}/pdf`
+			);
+			expect(blob).toBe(mockBlob);
+		});
+
+		it('generateBatchPdfZip calls POST /societies/{id}/billing/batches/{batchId}/pdf', async () => {
+			const mockArtifact: MaintenanceBillPDFArtifact = {
+				id: artifactId,
+				society_id: socId,
+				batch_id: batchId,
+				artifact_type: 'BATCH_ZIP_ARCHIVE',
+				file_name: 'batch-zip.zip',
+				file_size_bytes: 120000,
+				mime_type: 'application/zip',
+				storage_path: 'billing/soc-pdf-001/batches/batch.zip',
+				sha256_checksum: 'abcdef654321',
+				has_watermark: false,
+				created_at: '2026-11-01T12:00:00Z'
+			};
+			const postSpy = vi.spyOn(api, 'post').mockResolvedValue(mockArtifact);
+
+			const res = await societyApi.generateBatchPdfZip(socId, batchId);
+
+			expect(postSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/batches/${batchId}/pdf`);
+			expect(res.file_name).toBe('batch-zip.zip');
+		});
+
+		it('downloadBatchZip calls requestBlob with GET /societies/{id}/billing/batches/{batchId}/pdf', async () => {
+			const mockBlob = new Blob(['PK\x03\x04 zip data'], { type: 'application/zip' });
+			const blobSpy = vi.spyOn(api, 'requestBlob').mockResolvedValue(mockBlob);
+
+			const blob = await societyApi.downloadBatchZip(socId, batchId);
+
+			expect(blobSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/batches/${batchId}/pdf`);
+			expect(blob).toBe(mockBlob);
+		});
+
+		it('listBillArtifacts calls GET /societies/{id}/billing/bills/{billId}/artifacts', async () => {
+			const mockArtifacts: MaintenanceBillPDFArtifact[] = [
+				{
+					id: artifactId,
+					society_id: socId,
+					bill_id: billId,
+					artifact_type: 'SINGLE_BILL_PDF',
+					file_name: 'bill-001.pdf',
+					file_size_bytes: 45000,
+					mime_type: 'application/pdf',
+					storage_path: 'billing/soc-pdf-001/bills/bill-001.pdf',
+					sha256_checksum: 'abcdef123456',
+					has_watermark: false,
+					created_at: '2026-11-01T12:00:00Z'
+				}
+			];
+			const getSpy = vi.spyOn(api, 'get').mockResolvedValue({
+				artifacts: mockArtifacts
+			});
+
+			const res = await societyApi.listBillArtifacts(socId, billId);
+
+			expect(getSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/bills/${billId}/artifacts`);
+			expect(res.artifacts).toHaveLength(1);
+		});
+
+		it('getArtifactDetails calls GET /societies/{id}/billing/artifacts/{artifactId}', async () => {
+			const mockDetail: MaintenanceBillPDFArtifact = {
+				id: artifactId,
+				society_id: socId,
+				file_name: 'bill-001.pdf',
+				artifact_type: 'SINGLE_BILL_PDF',
+				file_size_bytes: 45000,
+				mime_type: 'application/pdf',
+				storage_path: 'billing/soc-pdf-001/bills/bill-001.pdf',
+				sha256_checksum: 'abcdef123456',
+				has_watermark: false,
+				created_at: '2026-11-01T12:00:00Z'
+			};
+			const getSpy = vi.spyOn(api, 'get').mockResolvedValue(mockDetail);
+
+			const res = await societyApi.getArtifactDetails(socId, artifactId);
+
+			expect(getSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/artifacts/${artifactId}`);
+			expect(res.id).toBe(artifactId);
+		});
+
+		it('downloadArtifact calls requestBlob with GET /societies/{id}/billing/artifacts/{artifactId}?download=true', async () => {
+			const mockBlob = new Blob(['%PDF-1.4 direct artifact stream'], { type: 'application/pdf' });
+			const blobSpy = vi.spyOn(api, 'requestBlob').mockResolvedValue(mockBlob);
+
+			const blob = await societyApi.downloadArtifact(socId, artifactId);
+
+			expect(blobSpy).toHaveBeenCalledWith(
+				`/societies/${socId}/billing/artifacts/${artifactId}?download=true`
+			);
+			expect(blob).toBe(mockBlob);
+		});
+
+		it('listBillingBatches calls GET /societies/{id}/billing/batches', async () => {
+			const mockBatches = [
+				{
+					id: batchId,
+					society_id: socId,
+					billing_period_id: 'per-001',
+					batch_number: 'BATCH-2026-NOV',
+					batch_name: 'November 2026 Assessment',
+					total_units_targeted: 120,
+					successful_unit_count: 120,
+					failed_unit_count: 0,
+					total_amount: 450000,
+					status: 'FINALIZED',
+					created_by: 'user-001',
+					created_at: '2026-11-01T10:00:00Z',
+					updated_at: '2026-11-01T10:00:00Z'
+				}
+			];
+			const getSpy = vi.spyOn(api, 'get').mockResolvedValue({
+				batches: mockBatches
+			});
+
+			const res = await societyApi.listBillingBatches(socId);
+
+			expect(getSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/batches`);
+			expect(res.batches).toHaveLength(1);
+		});
+
+		it('getBillingBatch calls GET /societies/{id}/billing/batches/{batchId}', async () => {
+			const mockBatch = {
+				id: batchId,
+				society_id: socId,
+				billing_period_id: 'per-001',
+				batch_number: 'BATCH-2026-NOV',
+				batch_name: 'November 2026 Assessment',
+				total_units_targeted: 120,
+				successful_unit_count: 120,
+				failed_unit_count: 0,
+				total_amount: 450000,
+				status: 'FINALIZED',
+				created_by: 'user-001',
+				created_at: '2026-11-01T10:00:00Z',
+				updated_at: '2026-11-01T10:00:00Z'
+			};
+			const getSpy = vi.spyOn(api, 'get').mockResolvedValue({ batch: mockBatch });
+
+			const res = await societyApi.getBillingBatch(socId, batchId);
+
+			expect(getSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/batches/${batchId}`);
+			expect(res.batch.id).toBe(batchId);
 		});
 	});
 });
