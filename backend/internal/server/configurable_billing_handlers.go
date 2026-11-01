@@ -623,8 +623,24 @@ func GenerateBillingBatchDraftsHandler(repo *society.Repository) http.HandlerFun
 
 		batch, err := repo.GenerateBillingBatchDrafts(r.Context(), societyID, batchID, actorID, r.RemoteAddr, r.UserAgent())
 		if err != nil {
-			if err == society.ErrBatchAlreadyFinalized {
+			if errors.Is(err, society.ErrBillingBatchNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing batch not found", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrBatchAlreadyProcessing) {
+				response.Error(w, http.StatusConflict, "BATCH_ALREADY_PROCESSING", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrBatchAlreadyFinalized) {
 				response.Error(w, http.StatusConflict, "BATCH_FINALIZED", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrBatchCancelled) {
+				response.Error(w, http.StatusConflict, "BATCH_CANCELLED", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrInvalidBatchTransition) {
+				response.Error(w, http.StatusConflict, "INVALID_TRANSITION", err.Error(), reqID)
 				return
 			}
 			response.Error(w, http.StatusBadRequest, "GENERATION_FAILED", err.Error(), reqID)
@@ -652,6 +668,26 @@ func FinalizeBillingBatchHandler(repo *society.Repository) http.HandlerFunc {
 
 		batch, err := repo.FinalizeBillingBatch(r.Context(), societyID, batchID, actorID, r.RemoteAddr, r.UserAgent())
 		if err != nil {
+			if errors.Is(err, society.ErrBillingBatchNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing batch not found", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrBatchAlreadyProcessing) {
+				response.Error(w, http.StatusConflict, "BATCH_ALREADY_PROCESSING", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrBatchAlreadyFinalized) {
+				response.Error(w, http.StatusConflict, "BATCH_FINALIZED", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrBatchCancelled) {
+				response.Error(w, http.StatusConflict, "BATCH_CANCELLED", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrInvalidBatchTransition) {
+				response.Error(w, http.StatusConflict, "INVALID_TRANSITION", err.Error(), reqID)
+				return
+			}
 			response.Error(w, http.StatusBadRequest, "FINALIZATION_FAILED", err.Error(), reqID)
 			return
 		}
@@ -685,11 +721,124 @@ func CancelBillingBatchHandler(repo *society.Repository) http.HandlerFunc {
 
 		err = repo.CancelBillingBatch(r.Context(), societyID, batchID, req.Reason, actorID, r.RemoteAddr, r.UserAgent())
 		if err != nil {
+			if errors.Is(err, society.ErrBillingBatchNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing batch not found", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrBatchAlreadyProcessing) {
+				response.Error(w, http.StatusConflict, "BATCH_ALREADY_PROCESSING", err.Error(), reqID)
+				return
+			}
 			response.Error(w, http.StatusBadRequest, "CANCELLATION_FAILED", err.Error(), reqID)
 			return
 		}
 
 		response.Success(w, http.StatusOK, map[string]interface{}{"status": "CANCELLED"}, nil)
+	}
+}
+
+func RetryFailedBatchUnitsHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		batchID, err := uuid.Parse(chi.URLParam(r, "batchId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid batch ID", reqID)
+			return
+		}
+
+		batch, err := repo.RetryFailedBatchUnits(r.Context(), societyID, batchID, actorID, r.RemoteAddr, r.UserAgent())
+		if err != nil {
+			if errors.Is(err, society.ErrBillingBatchNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing batch not found", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrBatchAlreadyProcessing) {
+				response.Error(w, http.StatusConflict, "BATCH_ALREADY_PROCESSING", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrBatchAlreadyFinalized) {
+				response.Error(w, http.StatusConflict, "BATCH_FINALIZED", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrBatchCancelled) {
+				response.Error(w, http.StatusConflict, "BATCH_CANCELLED", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrInvalidBatchTransition) {
+				response.Error(w, http.StatusConflict, "INVALID_TRANSITION", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrNoFailedUnitsToRetry) {
+				response.Error(w, http.StatusBadRequest, "NO_FAILED_UNITS", err.Error(), reqID)
+				return
+			}
+			response.Error(w, http.StatusBadRequest, "RETRY_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, batch, nil)
+	}
+}
+
+func GetBatchProgressHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		batchID, err := uuid.Parse(chi.URLParam(r, "batchId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid batch ID", reqID)
+			return
+		}
+
+		progress, err := repo.GetBatchProgress(r.Context(), societyID, batchID)
+		if err != nil {
+			if errors.Is(err, society.ErrBillingBatchNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing batch not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusBadRequest, "PROGRESS_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, progress, nil)
+	}
+}
+
+func ListBatchUnitsHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		batchID, err := uuid.Parse(chi.URLParam(r, "batchId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid batch ID", reqID)
+			return
+		}
+
+		statusFilter := r.URL.Query().Get("status")
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+		units, err := repo.ListBatchUnits(r.Context(), societyID, batchID, statusFilter, limit, offset)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "LIST_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, map[string]interface{}{"units": units}, nil)
 	}
 }
 

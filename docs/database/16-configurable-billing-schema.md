@@ -176,17 +176,32 @@ CREATE TABLE IF NOT EXISTS maintenance_billing_batches (
     ),
     filter_criteria JSONB NOT NULL DEFAULT '{}'::jsonb,
     target_unit_count INT NOT NULL DEFAULT 0,
+    processed_unit_count INT NOT NULL DEFAULT 0,
     successful_unit_count INT NOT NULL DEFAULT 0,
     failed_unit_count INT NOT NULL DEFAULT 0,
     total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00 CHECK (total_amount >= 0),
     status VARCHAR(30) NOT NULL DEFAULT 'DRAFT_PREVIEW' CHECK (
-        status IN ('DRAFT_PREVIEW', 'PROCESSING', 'GENERATED', 'FINALIZED', 'FAILED')
+        status IN (
+            'DRAFT_PREVIEW',
+            'QUEUED',
+            'PROCESSING',
+            'GENERATED',
+            'COMPLETED_WITH_ERRORS',
+            'FINALIZED',
+            'FAILED',
+            'CANCELLED'
+        )
     ),
     idempotency_key VARCHAR(100) NULL,
     error_summary JSONB NULL,
     created_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     finalized_by UUID NULL REFERENCES users(id) ON DELETE RESTRICT,
     finalized_at TIMESTAMPTZ NULL,
+    started_at TIMESTAMPTZ NULL,
+    completed_at TIMESTAMPTZ NULL,
+    cancelled_at TIMESTAMPTZ NULL,
+    cancelled_by UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+    cancellation_reason TEXT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_batches_period FOREIGN KEY (billing_period_id, society_id)
@@ -196,6 +211,32 @@ CREATE TABLE IF NOT EXISTS maintenance_billing_batches (
     CONSTRAINT uq_maint_batches_number UNIQUE (society_id, batch_number),
     CONSTRAINT uq_maint_batches_idempotency UNIQUE (society_id, idempotency_key),
     CONSTRAINT uq_maint_batches_id_society UNIQUE (id, society_id)
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_batch_units (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    society_id UUID NOT NULL REFERENCES societies(id) ON DELETE RESTRICT,
+    batch_id UUID NOT NULL,
+    unit_id UUID NOT NULL,
+    bill_id UUID NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (
+        status IN ('PENDING', 'CALCULATED', 'GENERATED', 'EXCLUDED', 'FAILED')
+    ),
+    calculation_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error_message TEXT NULL,
+    error_code VARCHAR(50) NULL,
+    retry_count INT NOT NULL DEFAULT 0,
+    last_attempted_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_batch_units_batch FOREIGN KEY (batch_id, society_id)
+        REFERENCES maintenance_billing_batches(id, society_id) ON DELETE CASCADE,
+    CONSTRAINT fk_batch_units_unit FOREIGN KEY (unit_id, society_id)
+        REFERENCES society_units(id, society_id) ON DELETE RESTRICT,
+    CONSTRAINT fk_batch_units_bill FOREIGN KEY (bill_id, society_id)
+        REFERENCES maintenance_bills(id, society_id) ON DELETE SET NULL,
+    CONSTRAINT uq_maint_batch_units_unit UNIQUE (batch_id, unit_id),
+    CONSTRAINT uq_maint_batch_units_id_society UNIQUE (id, society_id)
 );
 ```
 

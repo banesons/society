@@ -305,6 +305,9 @@ func SetupRouter(cfg *config.Config, logger *slog.Logger, db *database.DB, authS
 						billingRouter.Post("/batches/{batchId}/generate", GenerateBillingBatchDraftsHandler(societyRepo))
 						billingRouter.Post("/batches/{batchId}/finalize", FinalizeBillingBatchHandler(societyRepo))
 						billingRouter.Post("/batches/{batchId}/cancel", CancelBillingBatchHandler(societyRepo))
+						billingRouter.Post("/batches/{batchId}/retry", RetryFailedBatchUnitsHandler(societyRepo))
+						billingRouter.Get("/batches/{batchId}/progress", GetBatchProgressHandler(societyRepo))
+						billingRouter.Get("/batches/{batchId}/units", ListBatchUnitsHandler(societyRepo))
 
 						// PDF Generation & Artifacts
 						billingRouter.Post("/bills/{billId}/pdf", GenerateBillPDFHandler(societyRepo))

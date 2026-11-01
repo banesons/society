@@ -126,6 +126,100 @@ Implemented in package `chs/backend/internal/billingpdf`.
   - Strict society scoping on all artifact lookups.
   - RBAC: Residents can only access and download bills for units they actively own or occupy. Administrators can access all society bills.
 
+### 3.5 Frontend Billing PDF & Artifact Integration (Phase 6.1)
+The frontend connects the SvelteKit UI with Phase 5 PDF generation and binary delivery APIs:
+- **Central API Client Integration (`src/lib/api/society.ts`)**:
+  - `generateBillPdf(societyId, billId)`: Triggers PDF generation and returns artifact metadata.
+  - `downloadBillPdf(societyId, billId)`: Streams binary PDF blob via `api.requestBlob()`.
+  - `downloadResidentBillPdf(societyId, billId)`: Streams resident's own bill PDF blob from `/maintenance/my-bills/{id}/pdf`.
+  - `generateBatchPdfZip(societyId, batchId)`: Triggers batch generation and ZIP artifact creation.
+  - `downloadBatchZip(societyId, batchId)`: Streams batch ZIP binary archive.
+  - `listBillArtifacts(societyId, billId)`: Retrieves immutable artifact audit records for a bill.
+  - `getArtifactDetails(societyId, artifactId)`: Fetches artifact metadata.
+  - `downloadArtifact(societyId, artifactId)`: Streams binary artifact by ID.
+  - `listBillingBatches(societyId)` & `getBillingBatch(societyId, batchId)`: Batch tracking.
+- **Client-Side Binary Delivery Utility (`src/lib/utils.ts`)**:
+  - `triggerFileDownload(blob: Blob, filename: string)`: Safe, headless-compatible anchor dispatch and `URL.revokeObjectURL()` cleanup.
+  - `formatBytes(bytes: number)`: Standardized file size display for artifacts.
+- **Resident Bills Interface (`src/lib/components/resident/resident-bills-view.svelte`)**:
+  - Direct PDF download buttons in both table row actions and the Bill Details modal.
+  - Non-concurrent downloading indicator with disabled state prevention.
+- **Admin Maintenance Console (`src/lib/components/admin/maintenance-console.svelte`)**:
+  - Bills Register: One-click "PDF" download, "Generate" (or regenerate) PDF, and "Artifacts" modal launcher.
+  - Bill Details Modal: Download, Regenerate, and Artifacts actions in modal footer.
+  - Dedicated "Batches & ZIPs" Tab: Batch progress monitoring, target vs successful units, and "Download ZIP" / "Generate ZIP" actions.
+- **Bill Artifacts Modal (`src/lib/components/admin/bill-artifacts-modal.svelte`)**:
+  - Complete modal interface presenting artifact timeline, SHA-256 hash verification badge, MIME type, file size, watermark indicator, and direct download buttons.
+- **Security & Multi-Tenant Boundary**:
+  - Backend authorization remains strictly authoritative (handles 401/403/404).
+  ### 3.6 PDF Preview & Billing Document UX (Phase 6.2)
+Phase 6.2 delivers an in-browser PDF preview and refined document action UX across admin and resident surfaces:
+- **PDF Viewing Engine (`src/lib/components/ui/pdf-preview-modal.svelte`)**:
+  - Built with Mozilla's `pdfjs-dist` (v4) with web worker execution (`pdf.worker.min.mjs?url`) and fallback execution mode.
+  - Multi-page document navigation with boundary-clamped pagination controls.
+  - Granular zoom controls (0.4x to 3.0x) and automated Fit-to-Width / Fit-to-Page scaling.
+  - HiDPI / Retina canvas scaling via `window.devicePixelRatio` for crystal-clear vector text.
+  - Concurrency & memory management: active render cancellation (`activeRenderTask.cancel()`), document destruction (`pdfDoc.destroy()`), and cleanup on modal dismissal.
+  - Keyboard accessibility: `Escape` dismisses viewer, `ArrowLeft` / `ArrowRight` / `PageUp` / `PageDown` flips pages, `+` / `-` adjusts zoom.
+  - Mobile responsiveness: full-screen viewer with compact sticky control sub-bar ensuring zero horizontal overflow.
+- **Admin Action Hierarchy (`src/lib/components/admin/maintenance-console.svelte`)**:
+  - Bills table refactored to eliminate row clutter:
+    - Primary Action: `Preview` (prominent button opening `PdfPreviewModal`).
+    - Quick Action: `Download PDF` (icon button).
+    - Compact Contextual Menu (`···`): Itemized Breakdown, Artifact History, Regenerate PDF, Void Bill.
+  - Bill Details Modal: Prominent `Preview PDF` primary action in modal footer alongside download and regeneration.
+- **Artifact History Inspection (`src/lib/components/admin/bill-artifacts-modal.svelte`)**:
+  - Displays immutable generation history with explicit "Current Version" badge on the latest artifact.
+  - Direct in-viewer `Preview` button for any historical or current PDF artifact without re-downloading.
+  - Full audit metadata: generation timestamp, byte size, MIME type, SHA-256 checksum, watermark status.
+- **Resident Experience (`src/lib/components/resident/resident-bills-view.svelte`)**:
+  - Primary `View Bill` action opens the official PDF document directly in the in-browser viewer.
+  - Quick `Download PDF` and `Breakdown` actions maintained with clean spacing.
+  - Strict resident isolation: residents can only preview their own bills via `/maintenance/my-bills/{id}/pdf`.
+
+### 3.7 Batch Execution Engine, Lifecycle & Idempotency (Phase 7.1)
+Phase 7.1 introduces high-reliability batch execution, concurrency protection, idempotency enforcement, and partial failure isolation:
+
+```text
+                           ┌─────────────────┐
+                           │  DRAFT_PREVIEW  │
+                           └────────┬────────┘
+                                    │ (enqueue / start)
+                                    ▼
+       ┌───────────────┐     ┌───────────────┐
+       │    QUEUED     ├────►│  PROCESSING   │◄──────────────┐
+       └───────┬───────┘     └───────┬───────┘               │
+               │                     │                       │
+               │ (cancel)            │ (eval & generate)     │ (retry failed)
+               ▼                     ▼                       │
+       ┌───────────────┐     ┌───────────────────────┐       │
+       │   CANCELLED   │     │  COMPLETED_WITH_ERRORS├───────┘
+       └───────────────┘     └───────┬───────────────┘
+               ▲                     │
+               │ (cancel)            │ (finalize)
+               ├─────────────────────┼───────────────────────┐
+               │                     ▼                       ▼
+       ┌───────┴───────┐     ┌───────────────┐       ┌───────────────┐
+       │    FAILED     │     │   GENERATED   ├──────►│   FINALIZED   │
+       └───────▲───────┘     └───────────────┘       └───────────────┘
+               │ (all failed)        │ (finalize)            (Immutable)
+               └─────────────────────┘
+```
+
+- **Pessimistic Row-Level Concurrency Control**:
+  - Execution (`/generate`, `/finalize`, `/retry`) wraps batch processing inside a PostgreSQL transaction that immediately issues `SELECT ... FROM maintenance_billing_batches WHERE id = $1 AND society_id = $2 FOR UPDATE`.
+  - If another worker or process is currently running the batch (`status == 'PROCESSING'`), concurrent execution attempts are rejected with `409 Conflict` (`BATCH_ALREADY_PROCESSING`).
+- **Idempotency Strategy**:
+  - Deterministic batch key: `idempotency_key` enforced by unique constraint `uq_maint_batches_idempotency` per society.
+  - Bill uniqueness boundary: PostgreSQL partial unique index `uq_idx_maintenance_bills_active_unit_period_type` on `(society_id, billing_period_id, unit_id, bill_type) WHERE status != 'VOID'` ensures that even in distributed execution, no unit receives duplicate bills for the same period.
+  - Finalized immutability: PostgreSQL trigger `trg_enforce_bill_immutability` blocks any mutation to issued bills. Retries strictly preserve existing draft or issued bills and skip re-evaluating them.
+- **Unit Failure Isolation & Bounded Retries**:
+  - If calculation or member validation fails for an individual unit (e.g., malformed override, missing area variable), the engine catches the error, updates `maintenance_batch_units` (`status = 'FAILED'`, `error_message`, `error_code`, `retry_count`), and continues processing remaining units.
+  - Batches with partial failures complete with `COMPLETED_WITH_ERRORS`.
+  - The `/retry` endpoint queries solely `maintenance_batch_units WHERE batch_id = $1 AND status = 'FAILED'`, re-attempting only failed units without touching successful units.
+- **Progress Tracking Metrics**:
+  - The batch progress API exposes real-time counts: `target_unit_count`, `processed_unit_count`, `successful_unit_count`, `failed_unit_count`, `pending_unit_count`, alongside execution duration timestamps (`started_at`, `completed_at`, `finalized_at`).
+
 ---
 
 ## 4. Related Documentation
