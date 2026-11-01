@@ -199,3 +199,81 @@ All endpoints are mounted under `/api/v1/societies/{id}/billing` and are protect
 
 ### 4.7 Cancel Batch
 - **Endpoint**: `POST /api/v1/societies/{id}/billing/batches/{batchId}/cancel`
+
+---
+
+## 5. PDF Generation & Artifact Management APIs
+
+### 5.1 Generate Bill PDF
+- **Endpoint**: `POST /api/v1/societies/{id}/billing/bills/{billId}/pdf`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Behavior**:
+  - Builds `BillDocument` from immutable bill snapshot, published template version, society branding, and resident details.
+  - Renders print-ready A4 PDF with official CHS logo watermark.
+  - Computes SHA-256 checksum and uploads to storage provider.
+  - Records artifact in `maintenance_bill_pdf_artifacts` and updates `maintenance_bills.pdf_artifact_path`.
+- **Response**: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "id": "c13ea4b8-f86a-4951-b847-f47ffea9c6a1",
+    "society_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+    "bill_id": "f29db3f5-7d8b-4a5c-897b-89ff8a385f02",
+    "artifact_type": "SINGLE_BILL_PDF",
+    "file_name": "BILL-202611-0001.pdf",
+    "storage_path": "societies/9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d/billing/bills/f29db3f5-7d8b-4a5c-897b-89ff8a385f02/BILL-202611-0001.pdf",
+    "file_size_bytes": 18450,
+    "sha256_checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "mime_type": "application/pdf",
+    "has_watermark": true,
+    "created_at": "2026-11-01T17:30:00Z"
+  }
+}
+```
+
+### 5.2 Download Bill PDF
+- **Endpoint**: `GET /api/v1/societies/{id}/billing/bills/{billId}/pdf` (also available via `GET /api/v1/societies/{id}/maintenance/my-bills/{billId}/pdf` for residents)
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`, or resident owning/occupying the billed unit.
+- **Headers Returned**:
+  - `Content-Type: application/pdf`
+  - `Content-Disposition: inline; filename="BILL-202611-0001.pdf"`
+  - `ETag: "{sha256_checksum}"`
+  - `X-Content-Type-Options: nosniff`
+- **Response**: Binary stream of the PDF file.
+
+### 5.3 Generate Batch PDF Archive
+- **Endpoint**: `POST /api/v1/societies/{id}/billing/batches/{batchId}/pdf`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Behavior**:
+  - Generates individual PDFs for all finalized/issued bills in the batch.
+  - Packages PDFs into an in-memory ZIP archive with deterministic naming.
+  - Persists `BATCH_ZIP_ARCHIVE` artifact with SHA-256 checksum.
+- **Response**: `200 OK` with artifact metadata.
+
+### 5.4 Download Batch ZIP Archive
+- **Endpoint**: `GET /api/v1/societies/{id}/billing/batches/{batchId}/pdf`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Headers Returned**:
+  - `Content-Type: application/zip`
+  - `Content-Disposition: attachment; filename="{batchNumber}.zip"`
+  - `ETag: "{sha256_checksum}"`
+- **Response**: Binary stream of the ZIP archive.
+
+### 5.5 List Bill Artifacts
+- **Endpoint**: `GET /api/v1/societies/{id}/billing/bills/{billId}/artifacts`
+- **Response**: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "artifacts": [ ... ]
+  }
+}
+```
+
+### 5.6 Get Artifact Details / Download by Artifact ID
+- **Endpoint**: `GET /api/v1/societies/{id}/billing/artifacts/{artifactId}`
+- **Query Params**: `download=true` (optional; if true, streams binary payload with appropriate Content-Type)
+- **Response**: JSON metadata or binary stream.
+

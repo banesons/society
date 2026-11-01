@@ -204,6 +204,8 @@ func SetupRouter(cfg *config.Config, logger *slog.Logger, db *database.DB, authS
 					// S11 Maintenance Foundation - Resident My Bills
 					residentRouter.Get("/maintenance/my-bills", ListResidentBillsHandler(societyRepo))
 					residentRouter.Get("/maintenance/my-bills/{billId}", GetResidentBillDetailsHandler(societyRepo))
+					residentRouter.Get("/maintenance/my-bills/{billId}/pdf", DownloadBillPDFHandler(societyRepo))
+					residentRouter.Get("/billing/bills/{billId}/pdf", DownloadBillPDFHandler(societyRepo))
 					// S12 Maintenance Operations & Collections - Resident Payments & Receipts
 					residentRouter.Get("/maintenance/my-payments", ListResidentPaymentsHandler(societyRepo))
 					residentRouter.Get("/maintenance/my-receipts/{receiptId}", GetResidentReceiptHandler(societyRepo))
@@ -303,6 +305,14 @@ func SetupRouter(cfg *config.Config, logger *slog.Logger, db *database.DB, authS
 						billingRouter.Post("/batches/{batchId}/generate", GenerateBillingBatchDraftsHandler(societyRepo))
 						billingRouter.Post("/batches/{batchId}/finalize", FinalizeBillingBatchHandler(societyRepo))
 						billingRouter.Post("/batches/{batchId}/cancel", CancelBillingBatchHandler(societyRepo))
+
+						// PDF Generation & Artifacts
+						billingRouter.Post("/bills/{billId}/pdf", GenerateBillPDFHandler(societyRepo))
+						billingRouter.Get("/bills/{billId}/pdf", DownloadBillPDFHandler(societyRepo))
+						billingRouter.Post("/batches/{batchId}/pdf", GenerateBatchPDFsHandler(societyRepo))
+						billingRouter.Get("/batches/{batchId}/pdf", DownloadBatchZipHandler(societyRepo))
+						billingRouter.Get("/bills/{billId}/artifacts", ListBillArtifactsHandler(societyRepo))
+						billingRouter.Get("/artifacts/{artifactId}", GetArtifactDetailsHandler(societyRepo))
 					})
 
 					adminRouter.Get("/units/{unitId}/relationships", ListUnitRelationshipsHandler(societyRepo))

@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -688,5 +690,216 @@ func CancelBillingBatchHandler(repo *society.Repository) http.HandlerFunc {
 		}
 
 		response.Success(w, http.StatusOK, map[string]interface{}{"status": "CANCELLED"}, nil)
+	}
+}
+
+// ------------------------------------------------------------------------------
+// 5. PDF Generation & Artifact Handlers
+// ------------------------------------------------------------------------------
+
+func GenerateBillPDFHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		billID, err := uuid.Parse(chi.URLParam(r, "billId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid bill ID", reqID)
+			return
+		}
+
+		artifact, _, err := repo.GenerateBillPDF(r.Context(), societyID, billID, actorID)
+		if err != nil {
+			if errors.Is(err, society.ErrBillNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Maintenance bill not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusInternalServerError, "PDF_GENERATION_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, artifact, nil)
+	}
+}
+
+func DownloadBillPDFHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		billID, err := uuid.Parse(chi.URLParam(r, "billId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid bill ID", reqID)
+			return
+		}
+
+		userID, _ := middleware.GetUserID(r.Context())
+		role, _ := middleware.GetSocietyRole(r.Context())
+
+		allowed, err := repo.CanUserAccessBill(r.Context(), societyID, billID, userID, role)
+		if err != nil || !allowed {
+			response.Error(w, http.StatusForbidden, "ACCESS_DENIED", "You do not have permission to view or download this bill", reqID)
+			return
+		}
+
+		artifact, pdfBytes, err := repo.GetBillPDF(r.Context(), societyID, billID)
+		if err != nil {
+			if errors.Is(err, society.ErrBillNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Maintenance bill not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusInternalServerError, "PDF_FETCH_FAILED", err.Error(), reqID)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", artifact.FileName))
+		w.Header().Set("Content-Length", strconv.Itoa(len(pdfBytes)))
+		w.Header().Set("ETag", fmt.Sprintf("%q", artifact.SHA256Checksum))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(pdfBytes)
+	}
+}
+
+func GenerateBatchPDFsHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		batchID, err := uuid.Parse(chi.URLParam(r, "batchId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid batch ID", reqID)
+			return
+		}
+
+		artifact, _, err := repo.GenerateBatchPDFs(r.Context(), societyID, batchID, actorID)
+		if err != nil {
+			if errors.Is(err, society.ErrBillingBatchNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing batch not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusInternalServerError, "BATCH_PDF_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, artifact, nil)
+	}
+}
+
+func DownloadBatchZipHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		batchID, err := uuid.Parse(chi.URLParam(r, "batchId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid batch ID", reqID)
+			return
+		}
+
+		artifact, zipBytes, err := repo.GetBatchZipArtifact(r.Context(), societyID, batchID)
+		if err != nil {
+			if errors.Is(err, society.ErrBillingBatchNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing batch not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusInternalServerError, "BATCH_ZIP_FAILED", err.Error(), reqID)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", artifact.FileName))
+		w.Header().Set("Content-Length", strconv.Itoa(len(zipBytes)))
+		w.Header().Set("ETag", fmt.Sprintf("%q", artifact.SHA256Checksum))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(zipBytes)
+	}
+}
+
+func ListBillArtifactsHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		billID, err := uuid.Parse(chi.URLParam(r, "billId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid bill ID", reqID)
+			return
+		}
+
+		userID, _ := middleware.GetUserID(r.Context())
+		role, _ := middleware.GetSocietyRole(r.Context())
+
+		allowed, err := repo.CanUserAccessBill(r.Context(), societyID, billID, userID, role)
+		if err != nil || !allowed {
+			response.Error(w, http.StatusForbidden, "ACCESS_DENIED", "You do not have permission to view artifacts for this bill", reqID)
+			return
+		}
+
+		artifacts, err := repo.ListBillPDFArtifacts(r.Context(), societyID, billID)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, map[string]interface{}{"artifacts": artifacts}, nil)
+	}
+}
+
+func GetArtifactDetailsHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		artifactID, err := uuid.Parse(chi.URLParam(r, "artifactId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid artifact ID", reqID)
+			return
+		}
+
+		artifact, fileBytes, err := repo.GetArtifactByID(r.Context(), societyID, artifactID)
+		if err != nil {
+			if errors.Is(err, society.ErrArtifactNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Artifact not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error(), reqID)
+			return
+		}
+
+		if r.URL.Query().Get("download") == "true" && len(fileBytes) > 0 {
+			w.Header().Set("Content-Type", artifact.MimeType)
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", artifact.FileName))
+			w.Header().Set("Content-Length", strconv.Itoa(len(fileBytes)))
+			w.Header().Set("ETag", fmt.Sprintf("%q", artifact.SHA256Checksum))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(fileBytes)
+			return
+		}
+
+		response.Success(w, http.StatusOK, artifact, nil)
 	}
 }

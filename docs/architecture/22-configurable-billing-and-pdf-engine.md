@@ -95,10 +95,36 @@ Implemented in package `chs/backend/internal/formula`.
 - **Precision**: `NUMERIC(12, 2)` exact paise calculation with half-up rounding.
 
 ### 3.3 Watermark Specification
-- **Asset**: Official CHS Logo (`frontend/static/icons/icon-512.png` / vector geometry).
-- **Layer**: Drawn on background layer before table grid and text.
-- **Opacity**: Configurable default 0.08 (8%) to prevent obscuring numerical amounts.
-- **Coverage**: Applied uniformly to every page in multi-page invoices.
+- **Asset**: Official CHS Logo (`backend/internal/billingpdf/assets/chs_logo.png` embedded from `frontend/static/icons/icon-512.png`).
+- **Layer**: Drawn on background layer via `pdf.SetHeaderFunc()` before table grid and foreground content.
+- **Opacity**: Configurable default 0.08 (8%) with alpha transparency (`pdf.SetAlpha(opacity, "Normal")`) to ensure crystal-clear text readability on screen and in print.
+- **Coverage**: Applied uniformly to every page in single and multi-page invoices with 1:1 aspect ratio preservation.
+- **Security**: Disabling watermark requires an explicit authorized template setting (`watermark_enabled: false`). Missing logo asset halts rendering safely.
+
+### 3.4 PDF Invoice Generation Engine
+Implemented in package `chs/backend/internal/billingpdf`.
+- **Pure Go Rendering**: Zero CGo, zero headless browser/Chromium overhead. Built using `github.com/go-pdf/fpdf v0.9.0`. High throughput (<10ms per bill).
+- **A4 Editorial Swiss Minimalist Layout**:
+  - Off-white / white background with high contrast neutral typography.
+  - Society header block (name, registration number, address, GSTIN).
+  - Recipient block with member identity and unit details.
+  - Tabular particulars: Sl No, Particulars/Charge Head, SAC, Tax Classification, Rate, GST, and Amount in INR.
+  - Dual-column financial breakdown: Amount in words & society bank details on the left, line-by-line charges subtotal, CGST, SGST, IGST, arrears, interest, advance adjustments, and total payable on the right.
+  - Terms & conditions and authorized signatory block.
+- **Indian Financial Formatting**:
+  - Decimal grouping matching Indian counting system (`FormatINR` produces `₹1,23,456.78` and `10,00,000.00`).
+  - Indian English Number-to-Words (`NumberToWords` produces `Rupees Seven Thousand Three Hundred Sixty-Nine and Eighty Paise Only`).
+  - Supports zero, negative adjustments, and amounts up to Crores.
+- **Template Field Overrides**:
+  - The renderer honors published template snapshots for field visibility and custom labels (`isFieldVisible`, `getFieldLabel`).
+  - Preserves historical versioning: bills rendered years later use the published version snapshot active at their issuance.
+- **Artifact Management & Packaging**:
+  - Every generated PDF generates a 64-character SHA-256 checksum and metadata record in `maintenance_bill_pdf_artifacts`.
+  - Batch generation bundles individual bills into a deterministic in-memory ZIP archive (`archive/zip`) naming files deterministically (e.g. `{billNumber}_{unitIdentifier}.pdf`).
+  - Direct integration with Supabase Storage (`BucketSocietyDocuments`) with self-healing fallback to on-the-fly rendering when storage is offline.
+- **Security & Multi-Tenancy**:
+  - Strict society scoping on all artifact lookups.
+  - RBAC: Residents can only access and download bills for units they actively own or occupy. Administrators can access all society bills.
 
 ---
 
@@ -107,3 +133,5 @@ Implemented in package `chs/backend/internal/formula`.
 - [[../database/11-maintenance-foundation-schema|Database Schema 11]]
 - [[../database/12-maintenance-operations-and-collections-schema|Database Schema 12]]
 - [[../api/12-maintenance-foundation-api|API 12]]
+- [[../api/18-configurable-billing-api|API 18 — Configurable Billing Engine API]]
+
