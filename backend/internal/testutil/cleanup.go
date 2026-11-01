@@ -64,20 +64,31 @@ func CleanExtraSocieties(ctx context.Context, pool *pgxpool.Pool) error {
 	defer tx.Rollback(ctx)
 
 	// Disable immutability triggers
+	_, _ = tx.Exec(ctx, "ALTER TABLE maintenance_bills DISABLE TRIGGER trg_bills_immutable")
 	_, _ = tx.Exec(ctx, "ALTER TABLE maintenance_bill_items DISABLE TRIGGER trg_bill_items_immutable")
 	_, _ = tx.Exec(ctx, "ALTER TABLE document_versions DISABLE TRIGGER trg_document_versions_immutable")
 	_, _ = tx.Exec(ctx, "ALTER TABLE platform_audit_logs DISABLE TRIGGER platform_audit_logs_immutability_trg")
 
 	childTables := []string{
-		"notifications",
-		"document_versions",
-		"society_documents",
-		"document_categories",
+		"maintenance_bill_pdf_artifacts",
 		"maintenance_receipts",
 		"maintenance_payment_allocations",
 		"maintenance_payments",
 		"maintenance_bill_items",
+		"maintenance_batch_units",
 		"maintenance_bills",
+		"maintenance_billing_batches",
+		"maintenance_unit_billing_overrides",
+		"maintenance_template_fields",
+		"maintenance_bill_template_versions",
+		"maintenance_bill_templates",
+		"maintenance_charge_heads",
+		"maintenance_formula_versions",
+		"maintenance_formula_definitions",
+		"notifications",
+		"document_versions",
+		"society_documents",
+		"document_categories",
 		"maintenance_billing_periods",
 		"maintenance_charge_configs",
 		"maintenance_charge_categories",
@@ -161,6 +172,7 @@ func CleanExtraSocieties(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	// Re-enable triggers
+	_, _ = tx.Exec(ctx, "ALTER TABLE maintenance_bills ENABLE TRIGGER trg_bills_immutable")
 	_, _ = tx.Exec(ctx, "ALTER TABLE maintenance_bill_items ENABLE TRIGGER trg_bill_items_immutable")
 	_, _ = tx.Exec(ctx, "ALTER TABLE document_versions ENABLE TRIGGER trg_document_versions_immutable")
 	_, _ = tx.Exec(ctx, "ALTER TABLE platform_audit_logs ENABLE TRIGGER platform_audit_logs_immutability_trg")

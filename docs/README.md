@@ -50,6 +50,7 @@ Welcome to the central documentation index for the Cooperative Housing Society (
 - [[api/15-audit-and-administration-api|15 — Audit and Administration API]]: Global platform audit logs, society-scoped audit history, filter parameters, and event detail views.
 - [[api/16-notifications-api|16 — Notifications API]]: In-app inbox listing, unread count badge, mark read, bulk mark read, device registration, and deactivation.
 - [[api/17-dashboard-reporting-api|17 — Dashboard & Reporting API]]: Platform health summary, society operations and collections scorecards, and gate shift metrics.
+- [[api/18-configurable-billing-api|18 — Configurable Billing Engine API]]: Bill templates, charge heads, unit overrides, batch calculation pipeline, GST split, and draft bill generation.
 
 ## Database Schema Documentation
 

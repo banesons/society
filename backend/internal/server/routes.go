@@ -271,6 +271,40 @@ func SetupRouter(cfg *config.Config, logger *slog.Logger, db *database.DB, authS
 					adminRouter.Get("/maintenance/collections/summary", GetCollectionSummaryHandler(societyRepo))
 					adminRouter.Get("/maintenance/receipts/{receiptId}", GetReceiptDetailsHandler(societyRepo))
 
+					// Configurable Maintenance Billing Engine (Templates, Charge Heads, Overrides, Batches)
+					adminRouter.Route("/billing", func(billingRouter chi.Router) {
+						// Templates
+						billingRouter.Get("/templates", ListBillTemplatesHandler(societyRepo))
+						billingRouter.Post("/templates", CreateBillTemplateHandler(societyRepo))
+						billingRouter.Get("/templates/{templateId}", GetBillTemplateHandler(societyRepo))
+						billingRouter.Patch("/templates/{templateId}", UpdateBillTemplateHandler(societyRepo))
+						billingRouter.Post("/templates/{templateId}/duplicate", DuplicateBillTemplateHandler(societyRepo))
+						billingRouter.Post("/templates/{templateId}/publish", PublishBillTemplateHandler(societyRepo))
+						billingRouter.Post("/templates/{templateId}/archive", ArchiveBillTemplateHandler(societyRepo))
+						billingRouter.Get("/templates/{templateId}/versions", ListBillTemplateVersionsHandler(societyRepo))
+
+						// Charge Heads
+						billingRouter.Get("/charge-heads", ListChargeHeadsHandler(societyRepo))
+						billingRouter.Post("/charge-heads", CreateChargeHeadHandler(societyRepo))
+						billingRouter.Patch("/charge-heads/{headId}", UpdateChargeHeadHandler(societyRepo))
+						billingRouter.Delete("/charge-heads/{headId}", ArchiveChargeHeadHandler(societyRepo))
+
+						// Unit Overrides
+						billingRouter.Get("/units/{unitId}/overrides", ListUnitBillingOverridesHandler(societyRepo))
+						billingRouter.Post("/units/{unitId}/overrides", CreateUnitBillingOverrideHandler(societyRepo))
+						billingRouter.Patch("/units/{unitId}/overrides/{overrideId}", UpdateUnitBillingOverrideHandler(societyRepo))
+						billingRouter.Delete("/units/{unitId}/overrides/{overrideId}", DeleteUnitBillingOverrideHandler(societyRepo))
+
+						// Billing Batches & Calculation
+						billingRouter.Get("/batches", ListBillingBatchesHandler(societyRepo))
+						billingRouter.Post("/batches", CreateBillingBatchHandler(societyRepo))
+						billingRouter.Get("/batches/{batchId}", GetBillingBatchDetailsHandler(societyRepo))
+						billingRouter.Post("/batches/{batchId}/preview", PreviewBillingBatchHandler(societyRepo))
+						billingRouter.Post("/batches/{batchId}/generate", GenerateBillingBatchDraftsHandler(societyRepo))
+						billingRouter.Post("/batches/{batchId}/finalize", FinalizeBillingBatchHandler(societyRepo))
+						billingRouter.Post("/batches/{batchId}/cancel", CancelBillingBatchHandler(societyRepo))
+					})
+
 					adminRouter.Get("/units/{unitId}/relationships", ListUnitRelationshipsHandler(societyRepo))
 					adminRouter.Post("/units/{unitId}/relationships", CreateUnitRelationshipHandler(societyRepo))
 					adminRouter.Post("/units/{unitId}/relationships/{relationshipId}/end", EndUnitRelationshipHandler(societyRepo))
