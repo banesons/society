@@ -326,3 +326,84 @@ All endpoints are mounted under `/api/v1/societies/{id}/billing` and are protect
 - **Query Params**: `download=true` (optional; if true, streams binary payload with appropriate Content-Type)
 - **Response**: JSON metadata or binary stream.
 
+---
+
+## 6. Billing Automation Scheduler Endpoints
+
+### 6.1 Create Billing Schedule
+- **Endpoint**: `POST /api/v1/societies/{id}/billing/schedules`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Request Body**:
+```json
+{
+  "name": "Monthly Maintenance Automation",
+  "recurrence_type": "MONTHLY",
+  "template_id": "uuid",
+  "selection_mode": "ALL_UNITS",
+  "filter_criteria": {},
+  "day_of_month": 1,
+  "due_days": 15,
+  "timezone": "Asia/Kolkata",
+  "auto_finalize": false
+}
+```
+- **Response**: `201 Created`
+
+### 6.2 List Billing Schedules
+- **Endpoint**: `GET /api/v1/societies/{id}/billing/schedules`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Response**: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "schedules": [ ... ]
+  }
+}
+```
+
+### 6.3 Get Billing Schedule Details
+- **Endpoint**: `GET /api/v1/societies/{id}/billing/schedules/{scheduleId}`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Response**: `200 OK`
+
+### 6.4 Update Billing Schedule
+- **Endpoint**: `PUT /api/v1/societies/{id}/billing/schedules/{scheduleId}`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Request Body**: Editable fields (`name`, `template_id`, `selection_mode`, `filter_criteria`, `day_of_month`, `due_days`, `timezone`, `auto_finalize`).
+- **Response**: `200 OK`
+
+### 6.5 Pause Billing Schedule
+- **Endpoint**: `POST /api/v1/societies/{id}/billing/schedules/{scheduleId}/pause`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Response**: `200 OK` (sets status to `PAUSED`)
+
+### 6.6 Resume Billing Schedule
+- **Endpoint**: `POST /api/v1/societies/{id}/billing/schedules/{scheduleId}/resume`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Response**: `200 OK` (sets status to `ACTIVE`, recalculates `next_run_at` if past)
+
+### 6.7 Disable Billing Schedule
+- **Endpoint**: `POST /api/v1/societies/{id}/billing/schedules/{scheduleId}/disable`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Response**: `200 OK` (sets status to `DISABLED`)
+
+### 6.8 Trigger Manual Schedule Run
+- **Endpoint**: `POST /api/v1/societies/{id}/billing/schedules/{scheduleId}/run-now`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Response**: `200 OK` with execution details and generated batch ID.
+- **Conflict (409)**: If schedule is already running or batch already active for intended period.
+
+### 6.9 List Schedule Executions
+- **Endpoint**: `GET /api/v1/societies/{id}/billing/schedules/{scheduleId}/executions`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Response**: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "executions": [ ... ]
+  }
+}
+```
+

@@ -316,6 +316,17 @@ func SetupRouter(cfg *config.Config, logger *slog.Logger, db *database.DB, authS
 						billingRouter.Get("/batches/{batchId}/pdf", DownloadBatchZipHandler(societyRepo))
 						billingRouter.Get("/bills/{billId}/artifacts", ListBillArtifactsHandler(societyRepo))
 						billingRouter.Get("/artifacts/{artifactId}", GetArtifactDetailsHandler(societyRepo))
+
+						// Recurring Automation Schedules (Phase 7.2)
+						billingRouter.Get("/schedules", ListBillingSchedulesHandler(societyRepo))
+						billingRouter.Post("/schedules", CreateBillingScheduleHandler(societyRepo))
+						billingRouter.Get("/schedules/{scheduleId}", GetBillingScheduleHandler(societyRepo))
+						billingRouter.Put("/schedules/{scheduleId}", UpdateBillingScheduleHandler(societyRepo))
+						billingRouter.Post("/schedules/{scheduleId}/pause", PauseBillingScheduleHandler(societyRepo))
+						billingRouter.Post("/schedules/{scheduleId}/resume", ResumeBillingScheduleHandler(societyRepo))
+						billingRouter.Post("/schedules/{scheduleId}/disable", DisableBillingScheduleHandler(societyRepo))
+						billingRouter.Post("/schedules/{scheduleId}/run-now", RunBillingScheduleNowHandler(societyRepo))
+						billingRouter.Get("/schedules/{scheduleId}/executions", ListScheduleExecutionsHandler(societyRepo))
 					})
 
 					adminRouter.Get("/units/{unitId}/relationships", ListUnitRelationshipsHandler(societyRepo))

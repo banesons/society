@@ -220,12 +220,66 @@ Phase 7.1 introduces high-reliability batch execution, concurrency protection, i
 - **Progress Tracking Metrics**:
   - The batch progress API exposes real-time counts: `target_unit_count`, `processed_unit_count`, `successful_unit_count`, `failed_unit_count`, `pending_unit_count`, alongside execution duration timestamps (`started_at`, `completed_at`, `finalized_at`).
 
+### 3.8 Billing Automation Scheduler Architecture (Phase 7.2)
+
+The Billing Automation Scheduler triggers automated recurring batch billing cycles per society without bypassing Phase 7.1's core batch generation engine.
+
+```
+┌────────────────────────────────┐
+│   Scheduler Background Worker  │
+│  (PostgreSQL Polling Ticker)   │
+└───────────────┬────────────────┘
+                │ 1. Claim due schedules (FOR UPDATE SKIP LOCKED)
+                ▼
+┌────────────────────────────────────────────────────────┐
+│  maintenance_billing_schedules                         │
+│  - next_run_at <= NOW()                                │
+│  - status = 'ACTIVE'                                   │
+│  - locked_by = worker_id, locked_until = NOW() + 5m   │
+└───────────────┬────────────────────────────────────────┘
+                │ 2. Derive intended period & idempotency key
+                ▼
+┌────────────────────────────────────────────────────────┐
+│  Phase 7.1 Batch Execution Engine                      │
+│  - Resolve/Create maintenance_billing_periods          │
+│  - CreateBillingBatch(idempotencyKey)                  │
+│  - GenerateBillingBatchDrafts()                        │
+│  - FinalizeBillingBatch() (if auto_finalize = true)    │
+└───────────────┬────────────────────────────────────────┘
+                │ 3. Record outcome & advance schedule
+                ▼
+┌────────────────────────────────────────────────────────┐
+│  maintenance_billing_schedule_executions (Audit log)   │
+│  - status: SUCCESS / FAILED / SKIPPED                  │
+│  - batch_id, error_code, started_at, completed_at      │
+│  - advance next_run_at according to recurrence rules   │
+└────────────────────────────────────────────────────────┘
+```
+
+#### Recurrence Semantics & Date Calculations
+1. **Recurrence Intervals**:
+   - `MONTHLY`: Generates period for current month `[YYYY-MM-01, YYYY-MM-LastDay]`.
+   - `QUARTERLY`: Generates standard quarters `Q1: [Jan 1, Mar 31]`, `Q2: [Apr 1, Jun 30]`, `Q3: [Jul 1, Sep 30]`, `Q4: [Oct 1, Dec 31]`.
+   - `ANNUAL`: Generates 1-year financial cycle based on society configuration.
+2. **Date Safety**:
+   - Timezone-aware date arithmetic using schedule's IANA timezone (default `Asia/Kolkata`).
+   - Month-end dates safely handled via `time.Date(year, month+1, 0, ...)`, avoiding invalid date overflows on Feb 28/29 or 30-day months.
+3. **Multi-Instance Coordination**:
+   - Worker instances claim pending schedules via `WITH claimable AS (SELECT id ... FOR UPDATE SKIP LOCKED) UPDATE ... SET locked_by = $1, locked_until = NOW() + 5m`.
+   - Prevents duplicate execution across clustered backend replicas.
+   - Process crashes automatically self-heal when `locked_until` expires.
+4. **Deterministic Idempotency**:
+   - Unique execution key per period: `fmt.Sprintf("sched-%s-%s-%s", schedule.ID[:8], schedule.RecurrenceType, periodStart.Format("20060102"))`.
+   - Prevents duplicate batch generation even if triggered simultaneously by timer and administrator manual run.
+
 ---
 
 ## 4. Related Documentation
 - [[../decisions/047-configurable-billing-template-formula-engine-and-pdf|ADR 047]]
 - [[../database/11-maintenance-foundation-schema|Database Schema 11]]
 - [[../database/12-maintenance-operations-and-collections-schema|Database Schema 12]]
+- [[../database/16-configurable-billing-schema|Database Schema 16 — Configurable Billing Schema]]
 - [[../api/12-maintenance-foundation-api|API 12]]
 - [[../api/18-configurable-billing-api|API 18 — Configurable Billing Engine API]]
+
 

@@ -1312,5 +1312,106 @@ describe('Society Management Frontend API', () => {
 			expect(getSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/batches/${batchId}`);
 			expect(res.batch.id).toBe(batchId);
 		});
+
+		it('listBillingSchedules calls GET /societies/{id}/billing/schedules', async () => {
+			const mockSchedules = [
+				{
+					id: 'sched-001',
+					society_id: socId,
+					name: 'Monthly Maintenance Automation',
+					recurrence_type: 'MONTHLY' as const,
+					template_id: 'tpl-001',
+					selection_mode: 'ALL_UNITS' as const,
+					day_of_month: 1,
+					due_days: 15,
+					timezone: 'Asia/Kolkata',
+					auto_finalize: false,
+					next_run_at: '2026-12-01T09:00:00Z',
+					status: 'ACTIVE' as const,
+					created_by: 'user-001',
+					created_at: '2026-11-01T10:00:00Z',
+					updated_at: '2026-11-01T10:00:00Z'
+				}
+			];
+			const getSpy = vi.spyOn(api, 'get').mockResolvedValue({ schedules: mockSchedules });
+
+			const res = await societyApi.listBillingSchedules(socId);
+			expect(getSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/schedules`);
+			expect(res.schedules).toHaveLength(1);
+			expect(res.schedules[0].name).toBe('Monthly Maintenance Automation');
+		});
+
+		it('createBillingSchedule calls POST /societies/{id}/billing/schedules', async () => {
+			const payload = {
+				name: 'Monthly Automation',
+				recurrence_type: 'MONTHLY' as const,
+				template_id: 'tpl-001',
+				day_of_month: 5,
+				due_days: 15
+			};
+			const mockSched = {
+				id: 'sched-002',
+				society_id: socId,
+				...payload,
+				selection_mode: 'ALL_UNITS' as const,
+				timezone: 'Asia/Kolkata',
+				auto_finalize: false,
+				next_run_at: '2026-12-05T09:00:00Z',
+				status: 'ACTIVE' as const,
+				created_by: 'user-001',
+				created_at: '2026-11-01T10:00:00Z',
+				updated_at: '2026-11-01T10:00:00Z'
+			};
+			const postSpy = vi.spyOn(api, 'post').mockResolvedValue(mockSched);
+
+			const res = await societyApi.createBillingSchedule(socId, payload);
+			expect(postSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/schedules`, payload);
+			expect(res.id).toBe('sched-002');
+		});
+
+		it('pause, resume, and disable billing schedule call respective endpoints', async () => {
+			const schedId = 'sched-001';
+			const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: schedId });
+
+			await societyApi.pauseBillingSchedule(socId, schedId);
+			expect(postSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/schedules/${schedId}/pause`, {});
+
+			await societyApi.resumeBillingSchedule(socId, schedId);
+			expect(postSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/schedules/${schedId}/resume`, {});
+
+			await societyApi.disableBillingSchedule(socId, schedId);
+			expect(postSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/schedules/${schedId}/disable`, {});
+		});
+
+		it('runBillingScheduleNow calls POST /societies/{id}/billing/schedules/{scheduleId}/run-now', async () => {
+			const schedId = 'sched-001';
+			const mockExec = {
+				id: 'exec-001',
+				schedule_id: schedId,
+				society_id: socId,
+				idempotency_key: 'sched-sched-00-MONTHLY-20261101',
+				trigger_source: 'MANUAL' as const,
+				status: 'SUCCESS' as const,
+				attempt_count: 1,
+				started_at: '2026-11-01T10:00:00Z',
+				created_at: '2026-11-01T10:00:00Z'
+			};
+			const postSpy = vi.spyOn(api, 'post').mockResolvedValue(mockExec);
+
+			const res = await societyApi.runBillingScheduleNow(socId, schedId);
+			expect(postSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/schedules/${schedId}/run-now`, {});
+			expect(res.status).toBe('SUCCESS');
+		});
+
+		it('listScheduleExecutions calls GET /societies/{id}/billing/schedules/{scheduleId}/executions', async () => {
+			const schedId = 'sched-001';
+			const getSpy = vi.spyOn(api, 'get').mockResolvedValue({ executions: [] });
+
+			await societyApi.listScheduleExecutions(socId, schedId, 10, 0);
+			expect(getSpy).toHaveBeenCalledWith(
+				`/societies/${socId}/billing/schedules/${schedId}/executions?limit=10&offset=0`
+			);
+		});
 	});
 });
+

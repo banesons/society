@@ -18,6 +18,7 @@
 	import Button from '$lib/components/ui/button.svelte';
 	import BillArtifactsModal from './bill-artifacts-modal.svelte';
 	import PdfPreviewModal from '$lib/components/ui/pdf-preview-modal.svelte';
+	import BillingSchedulesTab from './billing-schedules-tab.svelte';
 	import { triggerFileDownload } from '$lib/utils';
 	import {
 		Wrench,
@@ -51,8 +52,8 @@
 
 	let { societyId }: Props = $props();
 
-	// Active tab: 'collections' | 'bills' | 'batches' | 'periods' | 'configs' | 'categories'
-	let activeTab = $state<'collections' | 'bills' | 'batches' | 'periods' | 'configs' | 'categories'>(
+	// Active tab: 'collections' | 'bills' | 'batches' | 'schedules' | 'periods' | 'configs' | 'categories'
+	let activeTab = $state<'collections' | 'bills' | 'batches' | 'schedules' | 'periods' | 'configs' | 'categories'>(
 		'collections'
 	);
 
@@ -778,6 +779,16 @@
 		</button>
 		<button
 			class="flex items-center gap-2 border-b-2 px-4 py-2.5 transition-colors {activeTab ===
+			'schedules'
+				? 'border-neutral-950 text-neutral-950'
+				: 'border-transparent text-neutral-500 hover:text-neutral-900'}"
+			onclick={() => (activeTab = 'schedules')}
+		>
+			<Calendar class="h-3.5 w-3.5" />
+			<span>Automation Schedules</span>
+		</button>
+		<button
+			class="flex items-center gap-2 border-b-2 px-4 py-2.5 transition-colors {activeTab ===
 			'periods'
 				? 'border-neutral-950 text-neutral-950'
 				: 'border-transparent text-neutral-500 hover:text-neutral-900'}"
@@ -1377,6 +1388,13 @@
 					</table>
 				</div>
 			{/if}
+		</div>
+	{/if}
+
+	<!-- Tab: Automation Schedules -->
+	{#if activeTab === 'schedules'}
+		<div class="mt-4">
+			<BillingSchedulesTab {societyId} />
 		</div>
 	{/if}
 

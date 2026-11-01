@@ -76,6 +76,8 @@ func CleanExtraSocieties(ctx context.Context, pool *pgxpool.Pool) error {
 		"maintenance_payments",
 		"maintenance_bill_items",
 		"maintenance_batch_units",
+		"maintenance_billing_schedule_executions",
+		"maintenance_billing_schedules",
 		"maintenance_bills",
 		"maintenance_billing_batches",
 		"maintenance_unit_billing_overrides",

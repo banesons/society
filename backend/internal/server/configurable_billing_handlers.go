@@ -1052,3 +1052,298 @@ func GetArtifactDetailsHandler(repo *society.Repository) http.HandlerFunc {
 		response.Success(w, http.StatusOK, artifact, nil)
 	}
 }
+
+// --- Billing Automation Scheduler Handlers (Phase 7.2) ---
+
+func CreateBillingScheduleHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+
+		var params society.CreateBillingScheduleParams
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid JSON payload", reqID)
+			return
+		}
+
+		sched, err := repo.CreateBillingSchedule(r.Context(), societyID, params, actorID, r.RemoteAddr, r.UserAgent())
+		if err != nil {
+			if errors.Is(err, society.ErrTemplateNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing template not found", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrDuplicateScheduleName) {
+				response.Error(w, http.StatusConflict, "DUPLICATE_NAME", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrInvalidRecurrenceType) ||
+				errors.Is(err, society.ErrInvalidDayOfMonth) ||
+				errors.Is(err, society.ErrInvalidDueDays) ||
+				errors.Is(err, society.ErrInvalidTimezone) {
+				response.Error(w, http.StatusBadRequest, "VALIDATION_FAILED", err.Error(), reqID)
+				return
+			}
+			response.Error(w, http.StatusBadRequest, "CREATE_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusCreated, sched, nil)
+	}
+}
+
+func ListBillingSchedulesHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+
+		schedules, err := repo.ListBillingSchedules(r.Context(), societyID)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, map[string]interface{}{"schedules": schedules}, nil)
+	}
+}
+
+func GetBillingScheduleHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		scheduleID, err := uuid.Parse(chi.URLParam(r, "scheduleId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid schedule ID", reqID)
+			return
+		}
+
+		sched, err := repo.GetBillingSchedule(r.Context(), societyID, scheduleID)
+		if err != nil {
+			if errors.Is(err, society.ErrScheduleNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing schedule not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, sched, nil)
+	}
+}
+
+func UpdateBillingScheduleHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		scheduleID, err := uuid.Parse(chi.URLParam(r, "scheduleId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid schedule ID", reqID)
+			return
+		}
+
+		var params society.UpdateBillingScheduleParams
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid JSON payload", reqID)
+			return
+		}
+
+		sched, err := repo.UpdateBillingSchedule(r.Context(), societyID, scheduleID, params, actorID, r.RemoteAddr, r.UserAgent())
+		if err != nil {
+			if errors.Is(err, society.ErrScheduleNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing schedule not found", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrTemplateNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing template not found", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrDuplicateScheduleName) {
+				response.Error(w, http.StatusConflict, "DUPLICATE_NAME", err.Error(), reqID)
+				return
+			}
+			response.Error(w, http.StatusBadRequest, "UPDATE_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, sched, nil)
+	}
+}
+
+func PauseBillingScheduleHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		scheduleID, err := uuid.Parse(chi.URLParam(r, "scheduleId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid schedule ID", reqID)
+			return
+		}
+
+		sched, err := repo.SetBillingScheduleStatus(r.Context(), societyID, scheduleID, "PAUSED", actorID, r.RemoteAddr, r.UserAgent())
+		if err != nil {
+			if errors.Is(err, society.ErrScheduleNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing schedule not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusBadRequest, "ACTION_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, sched, nil)
+	}
+}
+
+func ResumeBillingScheduleHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		scheduleID, err := uuid.Parse(chi.URLParam(r, "scheduleId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid schedule ID", reqID)
+			return
+		}
+
+		sched, err := repo.SetBillingScheduleStatus(r.Context(), societyID, scheduleID, "ACTIVE", actorID, r.RemoteAddr, r.UserAgent())
+		if err != nil {
+			if errors.Is(err, society.ErrScheduleNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing schedule not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusBadRequest, "ACTION_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, sched, nil)
+	}
+}
+
+func DisableBillingScheduleHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		scheduleID, err := uuid.Parse(chi.URLParam(r, "scheduleId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid schedule ID", reqID)
+			return
+		}
+
+		sched, err := repo.SetBillingScheduleStatus(r.Context(), societyID, scheduleID, "DISABLED", actorID, r.RemoteAddr, r.UserAgent())
+		if err != nil {
+			if errors.Is(err, society.ErrScheduleNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing schedule not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusBadRequest, "ACTION_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, sched, nil)
+	}
+}
+
+func RunBillingScheduleNowHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		scheduleID, err := uuid.Parse(chi.URLParam(r, "scheduleId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid schedule ID", reqID)
+			return
+		}
+
+		exec, err := repo.ExecuteScheduleRun(r.Context(), societyID, scheduleID, "MANUAL", actorID, r.RemoteAddr, r.UserAgent())
+		if err != nil {
+			if errors.Is(err, society.ErrScheduleNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing schedule not found", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrScheduleAlreadyRunning) {
+				response.Error(w, http.StatusConflict, "SCHEDULE_ALREADY_RUNNING", err.Error(), reqID)
+				return
+			}
+			if errors.Is(err, society.ErrScheduleDisabled) {
+				response.Error(w, http.StatusBadRequest, "SCHEDULE_DISABLED", err.Error(), reqID)
+				return
+			}
+			response.Error(w, http.StatusBadRequest, "EXECUTION_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, exec, nil)
+	}
+}
+
+func ListScheduleExecutionsHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		scheduleID, err := uuid.Parse(chi.URLParam(r, "scheduleId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid schedule ID", reqID)
+			return
+		}
+
+		limit := 20
+		if lStr := r.URL.Query().Get("limit"); lStr != "" {
+			if l, err := strconv.Atoi(lStr); err == nil && l > 0 {
+				limit = l
+			}
+		}
+		offset := 0
+		if oStr := r.URL.Query().Get("offset"); oStr != "" {
+			if o, err := strconv.Atoi(oStr); err == nil && o >= 0 {
+				offset = o
+			}
+		}
+
+		executions, err := repo.ListScheduleExecutions(r.Context(), societyID, scheduleID, limit, offset)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, map[string]interface{}{"executions": executions}, nil)
+	}
+}
+

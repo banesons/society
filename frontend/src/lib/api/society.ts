@@ -1243,6 +1243,60 @@ export const societyApi = {
 
 	getBillingBatch(societyId: string, batchId: string): Promise<{ batch: BillingBatch }> {
 		return api.get<{ batch: BillingBatch }>(`/societies/${societyId}/billing/batches/${batchId}`);
+	},
+
+	listBillingSchedules(societyId: string): Promise<{ schedules: BillingSchedule[] }> {
+		return api.get<{ schedules: BillingSchedule[] }>(`/societies/${societyId}/billing/schedules`);
+	},
+
+	getBillingSchedule(societyId: string, scheduleId: string): Promise<BillingSchedule> {
+		return api.get<BillingSchedule>(`/societies/${societyId}/billing/schedules/${scheduleId}`);
+	},
+
+	createBillingSchedule(
+		societyId: string,
+		payload: CreateBillingSchedulePayload
+	): Promise<BillingSchedule> {
+		return api.post<BillingSchedule>(`/societies/${societyId}/billing/schedules`, payload);
+	},
+
+	updateBillingSchedule(
+		societyId: string,
+		scheduleId: string,
+		payload: Partial<CreateBillingSchedulePayload>
+	): Promise<BillingSchedule> {
+		return api.put<BillingSchedule>(`/societies/${societyId}/billing/schedules/${scheduleId}`, payload);
+	},
+
+	pauseBillingSchedule(societyId: string, scheduleId: string): Promise<BillingSchedule> {
+		return api.post<BillingSchedule>(`/societies/${societyId}/billing/schedules/${scheduleId}/pause`, {});
+	},
+
+	resumeBillingSchedule(societyId: string, scheduleId: string): Promise<BillingSchedule> {
+		return api.post<BillingSchedule>(`/societies/${societyId}/billing/schedules/${scheduleId}/resume`, {});
+	},
+
+	disableBillingSchedule(societyId: string, scheduleId: string): Promise<BillingSchedule> {
+		return api.post<BillingSchedule>(`/societies/${societyId}/billing/schedules/${scheduleId}/disable`, {});
+	},
+
+	runBillingScheduleNow(societyId: string, scheduleId: string): Promise<ScheduleExecution> {
+		return api.post<ScheduleExecution>(`/societies/${societyId}/billing/schedules/${scheduleId}/run-now`, {});
+	},
+
+	listScheduleExecutions(
+		societyId: string,
+		scheduleId: string,
+		limit?: number,
+		offset?: number
+	): Promise<{ executions: ScheduleExecution[] }> {
+		const q = new URLSearchParams();
+		if (limit !== undefined) q.set('limit', limit.toString());
+		if (offset !== undefined) q.set('offset', offset.toString());
+		const queryStr = q.toString() ? `?${q.toString()}` : '';
+		return api.get<{ executions: ScheduleExecution[] }>(
+			`/societies/${societyId}/billing/schedules/${scheduleId}/executions${queryStr}`
+		);
 	}
 };
 
@@ -2462,3 +2516,57 @@ export interface BillingBatch {
 	created_at: string;
 	updated_at: string;
 }
+
+export interface BillingSchedule {
+	id: string;
+	society_id: string;
+	name: string;
+	recurrence_type: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
+	template_id: string;
+	template_name?: string;
+	selection_mode: 'ALL_UNITS' | 'SELECTED_UNITS';
+	filter_criteria?: Record<string, unknown>;
+	day_of_month: number;
+	due_days: number;
+	timezone: string;
+	auto_finalize: boolean;
+	next_run_at: string;
+	last_run_at?: string | null;
+	last_batch_id?: string | null;
+	status: 'ACTIVE' | 'PAUSED' | 'DISABLED';
+	created_by: string;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface ScheduleExecution {
+	id: string;
+	schedule_id: string;
+	society_id: string;
+	billing_period_id?: string | null;
+	period_name?: string;
+	batch_id?: string | null;
+	batch_number?: string;
+	idempotency_key: string;
+	trigger_source: 'SCHEDULED' | 'MANUAL';
+	status: 'CLAIMED' | 'PROCESSING' | 'SUCCESS' | 'FAILED' | 'SKIPPED';
+	attempt_count: number;
+	error_code?: string | null;
+	error_message?: string | null;
+	started_at: string;
+	completed_at?: string | null;
+	created_at: string;
+}
+
+export interface CreateBillingSchedulePayload {
+	name: string;
+	recurrence_type: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
+	template_id: string;
+	selection_mode?: 'ALL_UNITS' | 'SELECTED_UNITS';
+	filter_criteria?: Record<string, unknown>;
+	day_of_month?: number;
+	due_days?: number;
+	timezone?: string;
+	auto_finalize?: boolean;
+}
+

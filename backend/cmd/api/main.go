@@ -136,6 +136,10 @@ func main() {
 
 		go notifWorker.Start(workerCtx, 2*time.Second)
 		logger.Info("notification delivery worker started")
+
+		schedWorker := society.NewSchedulerWorker(societyRepo, logger)
+		go schedWorker.Start(workerCtx, 30*time.Second)
+		logger.Info("billing automation scheduler worker started")
 	}
 
 	// Initialize HTTP server
