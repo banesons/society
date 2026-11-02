@@ -138,6 +138,7 @@ func main() {
 		logger.Info("notification delivery worker started")
 
 		schedWorker := society.NewSchedulerWorker(societyRepo, logger)
+		societyRepo.SetSchedulerWorkerRef(schedWorker)
 		go schedWorker.Start(workerCtx, 30*time.Second)
 		logger.Info("billing automation scheduler worker started")
 	}

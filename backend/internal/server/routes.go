@@ -317,7 +317,8 @@ func SetupRouter(cfg *config.Config, logger *slog.Logger, db *database.DB, authS
 						billingRouter.Get("/bills/{billId}/artifacts", ListBillArtifactsHandler(societyRepo))
 						billingRouter.Get("/artifacts/{artifactId}", GetArtifactDetailsHandler(societyRepo))
 
-						// Recurring Automation Schedules (Phase 7.2)
+						// Recurring Automation Schedules (Phase 7.2 & 7.3)
+						billingRouter.Get("/schedules/health", GetBillingSchedulesHealthHandler(societyRepo))
 						billingRouter.Get("/schedules", ListBillingSchedulesHandler(societyRepo))
 						billingRouter.Post("/schedules", CreateBillingScheduleHandler(societyRepo))
 						billingRouter.Get("/schedules/{scheduleId}", GetBillingScheduleHandler(societyRepo))
@@ -326,7 +327,11 @@ func SetupRouter(cfg *config.Config, logger *slog.Logger, db *database.DB, authS
 						billingRouter.Post("/schedules/{scheduleId}/resume", ResumeBillingScheduleHandler(societyRepo))
 						billingRouter.Post("/schedules/{scheduleId}/disable", DisableBillingScheduleHandler(societyRepo))
 						billingRouter.Post("/schedules/{scheduleId}/run-now", RunBillingScheduleNowHandler(societyRepo))
+						billingRouter.Post("/schedules/{scheduleId}/recover-lock", RecoverScheduleLockHandler(societyRepo))
+						billingRouter.Post("/schedules/{scheduleId}/re-run-missed", RerunMissedScheduleHandler(societyRepo))
 						billingRouter.Get("/schedules/{scheduleId}/executions", ListScheduleExecutionsHandler(societyRepo))
+						billingRouter.Get("/schedules/{scheduleId}/executions/{executionId}", GetScheduleExecutionDetailsHandler(societyRepo))
+						billingRouter.Post("/schedules/{scheduleId}/executions/{executionId}/retry", RetryScheduleExecutionHandler(societyRepo))
 					})
 
 					adminRouter.Get("/units/{unitId}/relationships", ListUnitRelationshipsHandler(societyRepo))

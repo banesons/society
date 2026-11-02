@@ -20,14 +20,20 @@ var pincodeRegex = regexp.MustCompile(`^[1-9][0-9]{5}$`)
 
 // Repository manages database persistence and lifecycle operations for housing societies.
 type Repository struct {
-	pool           *pgxpool.Pool
-	storageBaseURL string
-	storageAnonKey string
+	pool            *pgxpool.Pool
+	storageBaseURL  string
+	storageAnonKey  string
+	schedulerWorker SchedulerWorkerAccessor
 }
 
 // NewRepository creates a new Society repository instance.
 func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
+}
+
+// SetSchedulerWorkerRef sets the worker instance reference for operational health querying.
+func (r *Repository) SetSchedulerWorkerRef(w SchedulerWorkerAccessor) {
+	r.schedulerWorker = w
 }
 
 // NormalizeCreateInput validates and standardizes parameters for a new society.

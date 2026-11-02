@@ -407,3 +407,46 @@ All endpoints are mounted under `/api/v1/societies/{id}/billing` and are protect
 }
 ```
 
+### 6.10 Get Billing Automation Health & Diagnostics
+- **Endpoint**: `GET /api/v1/societies/{id}/billing/schedules/health`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Response**: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "worker_status": "RUNNING",
+    "worker_id": "sched-worker-abc12345",
+    "last_poll_at": "2026-11-02T10:00:00Z",
+    "last_execution_at": "2026-11-02T09:00:00Z",
+    "total_active_schedules": 5,
+    "due_schedules": 0,
+    "overdue_schedules": 0,
+    "locked_schedules": 0,
+    "expired_locks": 0,
+    "stuck_executions": 0,
+    "failed_executions_24h": 0,
+    "recovery_required_count": 0
+  }
+}
+```
+
+### 6.11 Recover Expired Schedule Lock
+- **Endpoint**: `POST /api/v1/societies/{id}/billing/schedules/{scheduleId}/recover-lock`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Description**: Safely clears dangling `locked_by` and `locked_until` timestamps after a process crash or hung execution.
+- **Response**: `200 OK` with updated schedule details.
+
+### 6.12 Retry Failed Schedule Execution
+- **Endpoint**: `POST /api/v1/societies/{id}/billing/schedules/{scheduleId}/executions/{executionId}/retry`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Description**: Re-evaluates failed units or re-generates an incomplete batch draft without duplicating financial assessments or overwriting finalized bills.
+- **Response**: `200 OK` with execution result and recovery status `RECOVERED`.
+
+### 6.13 Re-run Missed / Overdue Schedule
+- **Endpoint**: `POST /api/v1/societies/{id}/billing/schedules/{scheduleId}/re-run-missed`
+- **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`
+- **Description**: Safely assesses and generates a batch for an overdue or unexecuted cycle, updating `next_run_at` to the proper current interval.
+- **Response**: `200 OK` with generated execution record.
+
+

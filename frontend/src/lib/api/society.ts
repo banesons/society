@@ -1297,6 +1297,45 @@ export const societyApi = {
 		return api.get<{ executions: ScheduleExecution[] }>(
 			`/societies/${societyId}/billing/schedules/${scheduleId}/executions${queryStr}`
 		);
+	},
+
+	getBillingSchedulesHealth(societyId: string): Promise<SchedulerHealthSummary> {
+		return api.get<SchedulerHealthSummary>(`/societies/${societyId}/billing/schedules/health`);
+	},
+
+	getScheduleExecutionDetails(
+		societyId: string,
+		scheduleId: string,
+		executionId: string
+	): Promise<ScheduleExecution> {
+		return api.get<ScheduleExecution>(
+			`/societies/${societyId}/billing/schedules/${scheduleId}/executions/${executionId}`
+		);
+	},
+
+	recoverScheduleLock(societyId: string, scheduleId: string): Promise<BillingSchedule> {
+		return api.post<BillingSchedule>(
+			`/societies/${societyId}/billing/schedules/${scheduleId}/recover-lock`,
+			{}
+		);
+	},
+
+	retryScheduleExecution(
+		societyId: string,
+		scheduleId: string,
+		executionId: string
+	): Promise<ScheduleExecution> {
+		return api.post<ScheduleExecution>(
+			`/societies/${societyId}/billing/schedules/${scheduleId}/executions/${executionId}/retry`,
+			{}
+		);
+	},
+
+	rerunMissedSchedule(societyId: string, scheduleId: string): Promise<ScheduleExecution> {
+		return api.post<ScheduleExecution>(
+			`/societies/${societyId}/billing/schedules/${scheduleId}/re-run-missed`,
+			{}
+		);
 	}
 };
 
@@ -2533,7 +2572,12 @@ export interface BillingSchedule {
 	next_run_at: string;
 	last_run_at?: string | null;
 	last_batch_id?: string | null;
+	failure_count: number;
+	last_error_code?: string | null;
+	last_error_message?: string | null;
 	status: 'ACTIVE' | 'PAUSED' | 'DISABLED';
+	locked_by?: string | null;
+	locked_until?: string | null;
 	created_by: string;
 	created_at: string;
 	updated_at: string;
@@ -2553,9 +2597,30 @@ export interface ScheduleExecution {
 	attempt_count: number;
 	error_code?: string | null;
 	error_message?: string | null;
+	duration_ms?: number | null;
+	recovery_status: 'NONE' | 'RECOVERED' | 'REQUIRES_ATTENTION';
+	recovered_at?: string | null;
+	recovered_by?: string | null;
+	recovery_notes?: string | null;
 	started_at: string;
 	completed_at?: string | null;
 	created_at: string;
+}
+
+export interface SchedulerHealthSummary {
+	worker_status: 'RUNNING' | 'STOPPED' | 'DEGRADED' | 'STANDBY' | 'UNKNOWN';
+	worker_id?: string;
+	last_scheduler_poll_at?: string | null;
+	last_successful_execution_at?: string | null;
+	total_schedules: number;
+	active_schedules: number;
+	due_schedules: number;
+	overdue_schedules: number;
+	locked_schedules: number;
+	expired_locks: number;
+	stuck_executions: number;
+	failed_executions_24h: number;
+	executions_requiring_attention: number;
 }
 
 export interface CreateBillingSchedulePayload {

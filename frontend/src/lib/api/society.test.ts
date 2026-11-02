@@ -1412,6 +1412,87 @@ describe('Society Management Frontend API', () => {
 				`/societies/${socId}/billing/schedules/${schedId}/executions?limit=10&offset=0`
 			);
 		});
+
+		it('getBillingSchedulesHealth calls GET /societies/{id}/billing/schedules/health', async () => {
+			const mockHealth = {
+				worker_status: 'RUNNING' as const,
+				total_schedules: 3,
+				active_schedules: 3,
+				due_schedules: 0,
+				overdue_schedules: 0,
+				locked_schedules: 0,
+				expired_locks: 0,
+				stuck_executions: 0,
+				failed_executions_24h: 0,
+				executions_requiring_attention: 0
+			};
+			const getSpy = vi.spyOn(api, 'get').mockResolvedValue(mockHealth);
+
+			const res = await societyApi.getBillingSchedulesHealth(socId);
+			expect(getSpy).toHaveBeenCalledWith(`/societies/${socId}/billing/schedules/health`);
+			expect(res.worker_status).toBe('RUNNING');
+		});
+
+		it('getScheduleExecutionDetails calls GET /societies/{id}/billing/schedules/{scheduleId}/executions/{executionId}', async () => {
+			const schedId = 'sched-001';
+			const execId = 'exec-001';
+			const mockExec = {
+				id: execId,
+				schedule_id: schedId,
+				society_id: socId,
+				idempotency_key: 'sched-1',
+				trigger_source: 'SCHEDULED' as const,
+				status: 'SUCCESS' as const,
+				attempt_count: 1,
+				duration_ms: 154,
+				recovery_status: 'NONE' as const,
+				started_at: '2026-11-01T10:00:00Z',
+				created_at: '2026-11-01T10:00:00Z'
+			};
+			const getSpy = vi.spyOn(api, 'get').mockResolvedValue(mockExec);
+
+			const res = await societyApi.getScheduleExecutionDetails(socId, schedId, execId);
+			expect(getSpy).toHaveBeenCalledWith(
+				`/societies/${socId}/billing/schedules/${schedId}/executions/${execId}`
+			);
+			expect(res.duration_ms).toBe(154);
+		});
+
+		it('recoverScheduleLock calls POST /societies/{id}/billing/schedules/{scheduleId}/recover-lock', async () => {
+			const schedId = 'sched-001';
+			const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: schedId, locked_by: null, locked_until: null });
+
+			await societyApi.recoverScheduleLock(socId, schedId);
+			expect(postSpy).toHaveBeenCalledWith(
+				`/societies/${socId}/billing/schedules/${schedId}/recover-lock`,
+				{}
+			);
+		});
+
+		it('retryScheduleExecution calls POST /societies/{id}/billing/schedules/{scheduleId}/executions/{executionId}/retry', async () => {
+			const schedId = 'sched-001';
+			const execId = 'exec-failed-1';
+			const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: 'exec-new-1', status: 'SUCCESS' });
+
+			const res = await societyApi.retryScheduleExecution(socId, schedId, execId);
+			expect(postSpy).toHaveBeenCalledWith(
+				`/societies/${socId}/billing/schedules/${schedId}/executions/${execId}/retry`,
+				{}
+			);
+			expect(res.id).toBe('exec-new-1');
+		});
+
+		it('rerunMissedSchedule calls POST /societies/{id}/billing/schedules/{scheduleId}/re-run-missed', async () => {
+			const schedId = 'sched-001';
+			const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: 'exec-rerun-1', status: 'SUCCESS' });
+
+			const res = await societyApi.rerunMissedSchedule(socId, schedId);
+			expect(postSpy).toHaveBeenCalledWith(
+				`/societies/${socId}/billing/schedules/${schedId}/re-run-missed`,
+				{}
+			);
+			expect(res.id).toBe('exec-rerun-1');
+		});
 	});
 });
 

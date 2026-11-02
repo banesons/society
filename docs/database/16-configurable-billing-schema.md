@@ -286,6 +286,9 @@ CREATE TABLE IF NOT EXISTS maintenance_billing_schedules (
     next_run_at TIMESTAMPTZ NOT NULL,
     last_run_at TIMESTAMPTZ NULL,
     last_batch_id UUID NULL REFERENCES maintenance_billing_batches(id) ON DELETE SET NULL,
+    failure_count INT NOT NULL DEFAULT 0,
+    last_error_code VARCHAR(50) NULL,
+    last_error_message TEXT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'PAUSED', 'DISABLED')),
     locked_by TEXT NULL,
     locked_until TIMESTAMPTZ NULL,
@@ -293,7 +296,7 @@ CREATE TABLE IF NOT EXISTS maintenance_billing_schedules (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_schedules_template FOREIGN KEY (template_id, society_id)
-        REFERENCES maintenance_bill_templates(id, society_id) ON DELETE RESTRICT,
+        REFERENCES maintenance_bill_templates(id, society_id) ON DELETE CASCADE,
     CONSTRAINT uq_maint_schedules_name UNIQUE (society_id, name),
     CONSTRAINT uq_maint_schedules_id_society UNIQUE (id, society_id)
 );
@@ -304,7 +307,7 @@ CREATE INDEX IF NOT EXISTS idx_maint_schedules_due
 ```
 
 ### 2.8 `maintenance_billing_schedule_executions`
-Provides immutable diagnostic audit history for each automated or manual schedule trigger.
+Provides immutable diagnostic audit history for each automated or manual schedule trigger with recovery telemetry.
 
 ```sql
 CREATE TABLE IF NOT EXISTS maintenance_billing_schedule_executions (
@@ -319,6 +322,13 @@ CREATE TABLE IF NOT EXISTS maintenance_billing_schedule_executions (
     attempt_count INT NOT NULL DEFAULT 1,
     error_code VARCHAR(50) NULL,
     error_message TEXT NULL,
+    duration_ms INT NULL,
+    recovery_status VARCHAR(30) NOT NULL DEFAULT 'NONE' CHECK (
+        recovery_status IN ('NONE', 'RECOVERED', 'REQUIRES_ATTENTION')
+    ),
+    recovered_at TIMESTAMPTZ NULL,
+    recovered_by UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+    recovery_notes TEXT NULL,
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

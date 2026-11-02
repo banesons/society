@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,10 +12,19 @@ import (
 
 // SchedulerWorker executes due recurring billing schedules in the background.
 type SchedulerWorker struct {
-	repo     *Repository
-	logger   *slog.Logger
-	workerID string
-	stopChan chan struct{}
+	repo           *Repository
+	logger         *slog.Logger
+	workerID       string
+	stopChan       chan struct{}
+	mu             sync.RWMutex
+	isRunning      bool
+	lastPollAt     *time.Time
+	lastExecutionAt *time.Time
+}
+
+// SchedulerWorkerAccessor defines the read-only operational telemetry contract for the scheduler worker.
+type SchedulerWorkerAccessor interface {
+	GetWorkerHealth() (status string, id string, lastPoll, lastExec *time.Time)
 }
 
 // NewSchedulerWorker initializes a billing scheduler background worker instance.
@@ -31,6 +41,17 @@ func NewSchedulerWorker(repo *Repository, logger *slog.Logger) *SchedulerWorker 
 	}
 }
 
+// GetWorkerHealth returns current operational status and heartbeat timestamps.
+func (w *SchedulerWorker) GetWorkerHealth() (string, string, *time.Time, *time.Time) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	status := "STOPPED"
+	if w.isRunning {
+		status = "RUNNING"
+	}
+	return status, w.workerID, w.lastPollAt, w.lastExecutionAt
+}
+
 // Start initiates the polling loop at the specified interval.
 func (w *SchedulerWorker) Start(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
@@ -39,7 +60,17 @@ func (w *SchedulerWorker) Start(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	w.mu.Lock()
+	w.isRunning = true
+	w.mu.Unlock()
+
 	w.logger.Info("billing scheduler worker started", "worker_id", w.workerID, "interval", interval.String())
+
+	defer func() {
+		w.mu.Lock()
+		w.isRunning = false
+		w.mu.Unlock()
+	}()
 
 	for {
 		select {
@@ -66,6 +97,11 @@ func (w *SchedulerWorker) ProcessDueSchedules(ctx context.Context, limit int) in
 		return 0
 	}
 
+	pollTime := time.Now()
+	w.mu.Lock()
+	w.lastPollAt = &pollTime
+	w.mu.Unlock()
+
 	schedules, err := w.repo.ClaimDueSchedules(ctx, w.workerID, limit)
 	if err != nil {
 		w.logger.Error("failed to claim due billing schedules", "error", err)
@@ -89,6 +125,13 @@ func (w *SchedulerWorker) ProcessDueSchedules(ctx context.Context, limit int) in
 				"schedule_id", s.ID, "batch_id", exec.BatchID, "period_name", exec.PeriodName)
 			processedCount++
 		}
+	}
+
+	if processedCount > 0 {
+		execTime := time.Now()
+		w.mu.Lock()
+		w.lastExecutionAt = &execTime
+		w.mu.Unlock()
 	}
 
 	return processedCount

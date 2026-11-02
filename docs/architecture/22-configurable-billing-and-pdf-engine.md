@@ -272,6 +272,37 @@ The Billing Automation Scheduler triggers automated recurring batch billing cycl
    - Unique execution key per period: `fmt.Sprintf("sched-%s-%s-%s", schedule.ID[:8], schedule.RecurrenceType, periodStart.Format("20060102"))`.
    - Prevents duplicate batch generation even if triggered simultaneously by timer and administrator manual run.
 
+### 3.9 Billing Automation Operations & Reliability (Phase 7.3)
+
+#### Operational Health Telemetry
+The scheduler exposes aggregate and per-schedule diagnostics via `GET /billing/schedules/health`:
+1. **Worker Liveness**: Real-time worker status (`RUNNING` / `STOPPED`), instance ID, and last poll timestamp.
+2. **Threshold-Based Anomaly Detection**:
+   - **Overdue Schedules**: Active schedules with `next_run_at < NOW() - INTERVAL '15 minutes'`.
+   - **Stuck Executions**: Executions in `CLAIMED` or `PROCESSING` exceeding 15 minutes without completion.
+   - **Expired Schedule Locks**: Dangling locks where `locked_until < NOW()` with non-null `locked_by`.
+   - **Repeated Failures**: Consecutive failures recorded per schedule (`failure_count >= 3`).
+
+#### Safe Administrator Recovery Workflows
+```
+┌─────────────────────────┐       ┌─────────────────────────┐
+│   Expired Lock Detected │──────►│  POST /recover-lock     │──► Resets lock, leaves schedule intact
+└─────────────────────────┘       └─────────────────────────┘
+
+┌─────────────────────────┐       ┌─────────────────────────┐
+│  Failed Unit Execution  │──────►│  POST /retry            │──► Reprocesses only failed units (Phase 7.1)
+└─────────────────────────┘       └─────────────────────────┘
+
+┌─────────────────────────┐       ┌─────────────────────────┐
+│  Missed/Overdue Schedule│──────►│  POST /re-run-missed    │──► Assesses period idempotently, advances next run
+└─────────────────────────┘       └─────────────────────────┘
+```
+
+1. **Lock Recovery**: Resets `locked_by` and `locked_until` after process crashes or worker restarts without mutating financial state.
+2. **Execution Retry**: Safe retry reusing deterministic idempotency keys; prevents duplicate period assessments or overwriting finalized bills.
+3. **Immutability Protection**: Retries against already `FINALIZED` batches are strictly rejected with `409 Conflict: BATCH_ALREADY_FINALIZED`.
+4. **Alert Deduplication**: Alerts emit structured correlation IDs (`alert-billing-sched-{schedule_id}-{incident_type}-{hour}`) preventing notification storms during sustained operational degradation.
+
 ---
 
 ## 4. Related Documentation
@@ -281,5 +312,6 @@ The Billing Automation Scheduler triggers automated recurring batch billing cycl
 - [[../database/16-configurable-billing-schema|Database Schema 16 — Configurable Billing Schema]]
 - [[../api/12-maintenance-foundation-api|API 12]]
 - [[../api/18-configurable-billing-api|API 18 — Configurable Billing Engine API]]
+
 
 

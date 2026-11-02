@@ -14,6 +14,7 @@ import (
 	"chs/backend/internal/society"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Unit tests for recurrence date arithmetic, month-end edge cases, leap years, and timezones.
@@ -136,6 +137,7 @@ func setupSchedulerFixture(t *testing.T) (
 	http.Handler,
 	func(phone string) (uuid.UUID, string),
 	uuid.UUID, // adminUserID
+	*pgxpool.Pool,
 ) {
 	t.Helper()
 	_, db, r, _, sRepo, sID, sTok, aUID, genTok := setupBillingTestEnv(t)
@@ -214,11 +216,11 @@ func setupSchedulerFixture(t *testing.T) (
 		return uID, genTok(uID)
 	}
 
-	return sRepo, sID, sTok, pubTpl.TemplateID, r, createUserToken, aUID
+	return sRepo, sID, sTok, pubTpl.TemplateID, r, createUserToken, aUID, db.Pool()
 }
 
 func TestBillingSchedule_LifecycleAndAdminControls(t *testing.T) {
-	repo, socID, superToken, templateID, router, _, _ := setupSchedulerFixture(t)
+	repo, socID, superToken, templateID, router, _, _, _ := setupSchedulerFixture(t)
 
 	// 1. Create Schedule
 	createPayload := map[string]interface{}{
@@ -333,7 +335,7 @@ func TestBillingSchedule_LifecycleAndAdminControls(t *testing.T) {
 }
 
 func TestBillingSchedule_WorkerClaimingAndConcurrency(t *testing.T) {
-	repo, socID, superToken, templateID, _, _, adminUID := setupSchedulerFixture(t)
+	repo, socID, superToken, templateID, _, _, adminUID, _ := setupSchedulerFixture(t)
 	ctx := context.Background()
 
 	// Create a schedule that is immediately due (next_run_at in past)
@@ -412,7 +414,7 @@ func TestBillingSchedule_WorkerClaimingAndConcurrency(t *testing.T) {
 }
 
 func TestBillingSchedule_AuthorizationAndTenantIsolation(t *testing.T) {
-	repo, socA_ID, superToken, templateA_ID, router, createUserToken, adminUID := setupSchedulerFixture(t)
+	repo, socA_ID, superToken, templateA_ID, router, createUserToken, adminUID, _ := setupSchedulerFixture(t)
 	ctx := context.Background()
 
 	// Create resident user token
@@ -472,5 +474,183 @@ func TestBillingSchedule_AuthorizationAndTenantIsolation(t *testing.T) {
 	router.ServeHTTP(recCross, reqCross)
 	if recCross.Code != http.StatusNotFound && recCross.Code != http.StatusForbidden {
 		t.Errorf("tenant isolation failure: expected 403 or 404 when querying Society A schedule under Society B, got %d", recCross.Code)
+	}
+}
+
+func TestBillingScheduler_HealthAndAnomalyDetection(t *testing.T) {
+	repo, socID, superToken, templateID, router, _, adminUID, testDB := setupSchedulerFixture(t)
+	ctx := context.Background()
+
+	// 1. Create schedule
+	sched, err := repo.CreateBillingSchedule(ctx, socID, society.CreateBillingScheduleParams{
+		Name:           fmt.Sprintf("Anomaly Test Sched %d", time.Now().UnixNano()%10000),
+		RecurrenceType: "MONTHLY",
+		TemplateID:     templateID,
+		DayOfMonth:     1,
+		DueDays:        15,
+		Timezone:       "Asia/Kolkata",
+	}, adminUID, "127.0.0.1", "test")
+	if err != nil {
+		t.Fatalf("create schedule: %v", err)
+	}
+
+	// 2. Simulate overdue schedule and expired lock
+	_, err = testDB.Exec(ctx, `
+		UPDATE maintenance_billing_schedules
+		SET next_run_at = NOW() - INTERVAL '20 minutes',
+		    locked_by = 'test-worker-ghost',
+		    locked_until = NOW() - INTERVAL '5 minutes'
+		WHERE id = $1
+	`, sched.ID)
+	if err != nil {
+		t.Fatalf("simulate overdue and expired lock: %v", err)
+	}
+
+	// 3. Simulate stuck execution
+	stuckKey := fmt.Sprintf("stuck-exec-%s", sched.ID.String()[:8])
+	_, err = testDB.Exec(ctx, `
+		INSERT INTO maintenance_billing_schedule_executions (
+			schedule_id, society_id, idempotency_key, trigger_source,
+			status, attempt_count, recovery_status, started_at
+		) VALUES ($1, $2, $3, 'SCHEDULED', 'CLAIMED', 1, 'NONE', NOW() - INTERVAL '20 minutes')
+		ON CONFLICT (society_id, idempotency_key) DO UPDATE
+		SET status = 'CLAIMED', started_at = EXCLUDED.started_at
+	`, sched.ID, socID, stuckKey)
+	if err != nil {
+		t.Fatalf("simulate stuck execution: %v", err)
+	}
+
+	// 4. Query Health Endpoint
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/societies/%s/billing/schedules/health", socID), nil)
+	req.Header.Set("Authorization", "Bearer "+superToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 health summary, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Data society.SchedulerHealthSummary `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("parse health response: %v", err)
+	}
+
+	health := resp.Data
+	if health.OverdueSchedules < 1 {
+		t.Errorf("expected at least 1 overdue schedule, got %d", health.OverdueSchedules)
+	}
+	if health.ExpiredLocks < 1 {
+		t.Errorf("expected at least 1 expired lock, got %d", health.ExpiredLocks)
+	}
+	if health.StuckExecutions < 1 {
+		t.Errorf("expected at least 1 stuck execution, got %d", health.StuckExecutions)
+	}
+}
+
+func TestBillingScheduler_RecoveryAndIdempotency(t *testing.T) {
+	repo, socID, superToken, templateID, router, _, adminUID, testDB := setupSchedulerFixture(t)
+	ctx := context.Background()
+
+	// 1. Create schedule
+	sched, err := repo.CreateBillingSchedule(ctx, socID, society.CreateBillingScheduleParams{
+		Name:           fmt.Sprintf("Recovery Test Sched %d", time.Now().UnixNano()%10000),
+		RecurrenceType: "MONTHLY",
+		TemplateID:     templateID,
+		DayOfMonth:     1,
+		DueDays:        15,
+		Timezone:       "Asia/Kolkata",
+	}, adminUID, "127.0.0.1", "test")
+	if err != nil {
+		t.Fatalf("create schedule: %v", err)
+	}
+
+	// Set lock and stuck execution
+	_, _ = testDB.Exec(ctx, `
+		UPDATE maintenance_billing_schedules
+		SET locked_by = 'worker-stuck',
+		    locked_until = NOW() + INTERVAL '10 minutes'
+		WHERE id = $1
+	`, sched.ID)
+
+	stuckKey := fmt.Sprintf("rec-stuck-%s", sched.ID.String()[:8])
+	var stuckExecID uuid.UUID
+	_ = testDB.QueryRow(ctx, `
+		INSERT INTO maintenance_billing_schedule_executions (
+			schedule_id, society_id, idempotency_key, trigger_source,
+			status, attempt_count, recovery_status, started_at
+		) VALUES ($1, $2, $3, 'SCHEDULED', 'CLAIMED', 1, 'NONE', NOW() - INTERVAL '10 minutes')
+		RETURNING id
+	`, sched.ID, socID, stuckKey).Scan(&stuckExecID)
+
+	// 2. Recover Schedule Lock via HTTP
+	reqRecov := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/societies/%s/billing/schedules/%s/recover-lock", socID, sched.ID), nil)
+	reqRecov.Header.Set("Authorization", "Bearer "+superToken)
+	recRecov := httptest.NewRecorder()
+	router.ServeHTTP(recRecov, reqRecov)
+
+	if recRecov.Code != http.StatusOK {
+		t.Fatalf("expected 200 recovering lock, got %d: %s", recRecov.Code, recRecov.Body.String())
+	}
+
+	// Verify lock released
+	refreshedSched, _ := repo.GetBillingSchedule(ctx, socID, sched.ID)
+	if refreshedSched.LockedBy != nil || refreshedSched.LockedUntil != nil {
+		t.Errorf("expected schedule lock to be cleared, got locked_by: %v", refreshedSched.LockedBy)
+	}
+
+	// Verify stuck execution marked as recovered
+	var recovStatus string
+	_ = testDB.QueryRow(ctx, `SELECT recovery_status FROM maintenance_billing_schedule_executions WHERE id = $1`, stuckExecID).Scan(&recovStatus)
+	if recovStatus != "RECOVERED" {
+		t.Errorf("expected stuck execution status RECOVERED, got %s", recovStatus)
+	}
+
+	// 3. Re-run Missed Schedule via HTTP
+	reqRerun := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/societies/%s/billing/schedules/%s/re-run-missed", socID, sched.ID), nil)
+	reqRerun.Header.Set("Authorization", "Bearer "+superToken)
+	recRerun := httptest.NewRecorder()
+	router.ServeHTTP(recRerun, reqRerun)
+
+	if recRerun.Code != http.StatusOK {
+		t.Fatalf("expected 200 re-running missed schedule, got %d: %s", recRerun.Code, recRerun.Body.String())
+	}
+
+	var rerunResp struct {
+		Data society.ScheduleExecution `json:"data"`
+	}
+	if err := json.Unmarshal(recRerun.Body.Bytes(), &rerunResp); err != nil {
+		t.Fatalf("parse rerun response: %v", err)
+	}
+	exec := rerunResp.Data
+	if exec.Status != "SUCCESS" {
+		t.Errorf("expected SUCCESS execution, got %s", exec.Status)
+	}
+	if exec.DurationMs == nil || *exec.DurationMs < 0 {
+		t.Errorf("expected valid duration_ms telemetry, got %v", exec.DurationMs)
+	}
+
+	// 4. Test Finalized Batch Immutability:
+	// Finalize the batch that was just generated
+	if exec.BatchID != nil {
+		_, err = repo.FinalizeBillingBatch(ctx, socID, *exec.BatchID, adminUID, "127.0.0.1", "test")
+		if err != nil {
+			t.Fatalf("finalize batch: %v", err)
+		}
+
+		// Attempt to retry the execution of a finalized batch -> must fail with 409 Conflict
+		reqRetry := httptest.NewRequest(
+			http.MethodPost,
+			fmt.Sprintf("/api/v1/societies/%s/billing/schedules/%s/executions/%s/retry", socID, sched.ID, exec.ID),
+			nil,
+		)
+		reqRetry.Header.Set("Authorization", "Bearer "+superToken)
+		recRetry := httptest.NewRecorder()
+		router.ServeHTTP(recRetry, reqRetry)
+
+		if recRetry.Code != http.StatusConflict {
+			t.Errorf("expected 409 Conflict when retrying finalized batch execution, got %d: %s", recRetry.Code, recRetry.Body.String())
+		}
 	}
 }

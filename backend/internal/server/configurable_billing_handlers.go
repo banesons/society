@@ -1347,3 +1347,163 @@ func ListScheduleExecutionsHandler(repo *society.Repository) http.HandlerFunc {
 	}
 }
 
+func GetBillingSchedulesHealthHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+
+		health, err := repo.GetSchedulerHealth(r.Context(), societyID)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "HEALTH_QUERY_FAILED", "Failed to retrieve scheduler health", reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, health, nil)
+	}
+}
+
+func GetScheduleExecutionDetailsHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		scheduleID, err := uuid.Parse(chi.URLParam(r, "scheduleId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid schedule ID", reqID)
+			return
+		}
+		executionID, err := uuid.Parse(chi.URLParam(r, "executionId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid execution ID", reqID)
+			return
+		}
+
+		exec, err := repo.GetScheduleExecution(r.Context(), societyID, scheduleID, executionID)
+		if err != nil {
+			if errors.Is(err, society.ErrExecutionNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Schedule execution not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, exec, nil)
+	}
+}
+
+func RecoverScheduleLockHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		scheduleID, err := uuid.Parse(chi.URLParam(r, "scheduleId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid schedule ID", reqID)
+			return
+		}
+
+		sched, err := repo.RecoverScheduleLock(r.Context(), societyID, scheduleID, actorID, r.RemoteAddr, r.UserAgent())
+		if err != nil {
+			if errors.Is(err, society.ErrScheduleNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing schedule not found", reqID)
+				return
+			}
+			response.Error(w, http.StatusBadRequest, "LOCK_RECOVERY_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, sched, nil)
+	}
+}
+
+func RetryScheduleExecutionHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		scheduleID, err := uuid.Parse(chi.URLParam(r, "scheduleId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid schedule ID", reqID)
+			return
+		}
+		executionID, err := uuid.Parse(chi.URLParam(r, "executionId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid execution ID", reqID)
+			return
+		}
+
+		newExec, err := repo.RetryScheduleExecution(r.Context(), societyID, scheduleID, executionID, actorID, r.RemoteAddr, r.UserAgent())
+		if err != nil {
+			if errors.Is(err, society.ErrExecutionNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Schedule execution not found", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrFinalizedBatchImmutable) {
+				response.Error(w, http.StatusConflict, "FINALIZED_BATCH_IMMUTABLE", "Cannot retry execution for an already finalized billing batch", reqID)
+				return
+			}
+			response.Error(w, http.StatusBadRequest, "RETRY_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, newExec, nil)
+	}
+}
+
+func RerunMissedScheduleHandler(repo *society.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetRequestID(r.Context())
+		actorID, _ := middleware.GetUserID(r.Context())
+		societyID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid society ID", reqID)
+			return
+		}
+		scheduleID, err := uuid.Parse(chi.URLParam(r, "scheduleId"))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, "BAD_REQUEST", "Invalid schedule ID", reqID)
+			return
+		}
+
+		exec, err := repo.RerunMissedSchedule(r.Context(), societyID, scheduleID, actorID, r.RemoteAddr, r.UserAgent())
+		if err != nil {
+			if errors.Is(err, society.ErrScheduleNotFound) {
+				response.Error(w, http.StatusNotFound, "NOT_FOUND", "Billing schedule not found", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrScheduleDisabled) {
+				response.Error(w, http.StatusBadRequest, "SCHEDULE_DISABLED", "Cannot re-run disabled billing schedule", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrScheduleAlreadyRunning) {
+				response.Error(w, http.StatusConflict, "SCHEDULE_ALREADY_RUNNING", "Billing schedule is currently running", reqID)
+				return
+			}
+			if errors.Is(err, society.ErrFinalizedBatchImmutable) {
+				response.Error(w, http.StatusConflict, "FINALIZED_BATCH_IMMUTABLE", "Cannot re-run schedule: period batch is already finalized", reqID)
+				return
+			}
+			response.Error(w, http.StatusBadRequest, "RERUN_FAILED", err.Error(), reqID)
+			return
+		}
+
+		response.Success(w, http.StatusOK, exec, nil)
+	}
+}
+
