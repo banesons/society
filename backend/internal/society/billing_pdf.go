@@ -52,6 +52,7 @@ func (r *Repository) CanUserAccessBill(ctx context.Context, societyID, billID, u
 		JOIN society_members sm ON ur.member_id = sm.id AND ur.society_id = sm.society_id
 		WHERE b.id = $1 AND b.society_id = $2 AND sm.user_id = $3
 		  AND ur.status = 'ACTIVE' AND sm.status = 'ACTIVE'
+		  AND b.status != 'DRAFT'
 	`
 	err := r.pool.QueryRow(ctx, query, billID, societyID, userID).Scan(&count)
 	if err != nil {

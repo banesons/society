@@ -284,6 +284,7 @@ All endpoints are mounted under `/api/v1/societies/{id}/billing` and are protect
 ### 5.2 Download Bill PDF
 - **Endpoint**: `GET /api/v1/societies/{id}/billing/bills/{billId}/pdf` (also available via `GET /api/v1/societies/{id}/maintenance/my-bills/{billId}/pdf` for residents)
 - **Role**: `SOCIETY_ADMIN`, `SUPER_ADMIN`, or resident owning/occupying the billed unit.
+- **Security & Privacy**: Residents can only access finalized (`status != 'DRAFT'`) bills. Attempting to access an unfinalized `DRAFT` bill returns `403 Forbidden`.
 - **Headers Returned**:
   - `Content-Type: application/pdf`
   - `Content-Disposition: inline; filename="BILL-202611-0001.pdf"`

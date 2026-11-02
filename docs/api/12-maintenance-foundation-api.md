@@ -235,9 +235,10 @@ Base Path: `/api/v1/societies/{id}`
 - **Method**: `GET`
 - **Path**: `/api/v1/societies/{id}/maintenance/my-bills`
 - **Auth**: Resident occupant or owner in society
-- **Response**: Returns only bills for units where the authenticated resident holds an active authorized relationship.
+- **Response**: Returns only finalized bills (`status != 'DRAFT'`) for units where the authenticated resident holds an active authorized relationship. Unfinalized `DRAFT` bills remain strictly invisible to residents.
 
 ### 6.2 Get Resident Bill Details
 - **Method**: `GET`
 - **Path**: `/api/v1/societies/{id}/maintenance/my-bills/{billId}`
 - **Auth**: Resident occupant or owner of the specific unit
+- **Security**: Returns `404 Not Found` (`BILL_NOT_FOUND`) if the bill is in `DRAFT` status or the caller is unauthorized.

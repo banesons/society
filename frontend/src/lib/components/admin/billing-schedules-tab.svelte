@@ -313,7 +313,7 @@
 				<RotateCw class="w-3.5 h-3.5 mr-1.5 {isLoading ? 'animate-spin' : ''}" />
 				Refresh
 			</Button>
-			<Button variant="default" size="sm" onclick={openCreateModal}>
+			<Button variant="primary" size="sm" onclick={openCreateModal}>
 				<Plus class="w-3.5 h-3.5 mr-1.5" />
 				New Schedule
 			</Button>
@@ -535,8 +535,8 @@
 										{#if isLocked(s) || isLockExpired(s)}
 											<Button
 												variant="outline"
-												size="icon"
-												class="h-7 w-7 text-amber-600 border-amber-500/40 hover:bg-amber-500/10"
+												size="sm"
+												class="h-7 w-7 text-amber-600 border-amber-500/40 hover:bg-amber-500/10 p-0"
 												title="Recover Schedule Lock"
 												disabled={actionLoadingId === s.id}
 												onclick={() => handleRecoverLock(s)}
@@ -548,8 +548,8 @@
 										{#if isOverdue(s)}
 											<Button
 												variant="outline"
-												size="icon"
-												class="h-7 w-7 text-destructive border-destructive/40 hover:bg-destructive/10"
+												size="sm"
+												class="h-7 w-7 text-destructive border-destructive/40 hover:bg-destructive/10 p-0"
 												title="Re-run Missed Schedule"
 												disabled={actionLoadingId === s.id || s.status === 'DISABLED'}
 												onclick={() => handleRerunMissed(s)}
@@ -560,8 +560,8 @@
 
 										<Button
 											variant="ghost"
-											size="icon"
-											class="h-7 w-7"
+											size="sm"
+											class="h-7 w-7 p-0"
 											title="Run Now (Manual Trigger)"
 											disabled={actionLoadingId === s.id || s.status === 'DISABLED'}
 											onclick={() => handleRunNow(s)}
@@ -575,8 +575,8 @@
 
 										<Button
 											variant="ghost"
-											size="icon"
-											class="h-7 w-7"
+											size="sm"
+											class="h-7 w-7 p-0"
 											title={s.status === 'ACTIVE' ? 'Pause' : 'Resume'}
 											disabled={actionLoadingId === s.id || s.status === 'DISABLED'}
 											onclick={() => handleToggleStatus(s)}
@@ -591,8 +591,8 @@
 										{#if s.status !== 'DISABLED'}
 											<Button
 												variant="ghost"
-												size="icon"
-												class="h-7 w-7 text-muted-foreground hover:text-destructive"
+												size="sm"
+												class="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
 												title="Disable Schedule"
 												disabled={actionLoadingId === s.id}
 												onclick={() => handleDisable(s)}
@@ -603,8 +603,8 @@
 
 										<Button
 											variant="ghost"
-											size="icon"
-											class="h-7 w-7 text-muted-foreground"
+											size="sm"
+											class="h-7 w-7 p-0 text-muted-foreground"
 											title="Execution History"
 											onclick={() => openExecutionsModal(s)}
 										>
@@ -623,7 +623,8 @@
 
 <!-- Create Schedule Modal -->
 <ResponsiveModal
-	bind:isOpen={isCreateModalOpen}
+	isOpen={isCreateModalOpen}
+	onClose={() => (isCreateModalOpen = false)}
 	title="Create Recurring Billing Schedule"
 	description="Configure automated periodic billing assessments for this society."
 >
@@ -737,7 +738,7 @@
 			<Button variant="ghost" size="sm" onclick={() => (isCreateModalOpen = false)} disabled={isSubmitting}>
 				Cancel
 			</Button>
-			<Button variant="default" size="sm" type="submit" disabled={isSubmitting}>
+			<Button variant="primary" size="sm" type="submit" disabled={isSubmitting}>
 				{#if isSubmitting}
 					<Loader2 class="w-3.5 h-3.5 animate-spin mr-1.5" />
 				{/if}
@@ -749,7 +750,8 @@
 
 <!-- Execution History Modal -->
 <ResponsiveModal
-	bind:isOpen={isExecutionsModalOpen}
+	isOpen={isExecutionsModalOpen}
+	onClose={() => (isExecutionsModalOpen = false)}
 	title={`Executions — ${selectedSchedule?.name || ''}`}
 	description="Immutable audit history and operational diagnostics of batch runs."
 >
@@ -825,8 +827,8 @@
 										<div class="flex items-center justify-end gap-1">
 											<Button
 												variant="ghost"
-												size="icon"
-												class="h-6 w-6 text-muted-foreground"
+												size="sm"
+												class="h-6 w-6 p-0 text-muted-foreground"
 												title="View Diagnostic Details"
 												onclick={() => viewExecutionDetails(e)}
 											>
@@ -836,8 +838,8 @@
 											{#if e.status === 'FAILED'}
 												<Button
 													variant="ghost"
-													size="icon"
-													class="h-6 w-6 text-primary hover:bg-primary/10"
+													size="sm"
+													class="h-6 w-6 p-0 text-primary hover:bg-primary/10"
 													title="Retry Failed Execution"
 													onclick={() => handleRetryExecution(e)}
 												>
@@ -864,7 +866,8 @@
 
 <!-- Confirmation Modal for Consequential Actions -->
 <ResponsiveModal
-	bind:isOpen={isConfirmModalOpen}
+	isOpen={isConfirmModalOpen}
+	onClose={() => (isConfirmModalOpen = false)}
 	title={confirmTitle}
 	description="Please confirm before proceeding with this operational recovery action."
 >
@@ -877,7 +880,7 @@
 			<Button variant="ghost" size="sm" onclick={() => (isConfirmModalOpen = false)} disabled={isConfirming}>
 				Cancel
 			</Button>
-			<Button variant="default" size="sm" onclick={executeConfirmedAction} disabled={isConfirming}>
+			<Button variant="primary" size="sm" onclick={executeConfirmedAction} disabled={isConfirming}>
 				{#if isConfirming}
 					<Loader2 class="w-3.5 h-3.5 animate-spin mr-1.5" />
 				{/if}
@@ -889,7 +892,8 @@
 
 <!-- Execution Diagnostic Details Modal -->
 <ResponsiveModal
-	bind:isOpen={isDetailModalOpen}
+	isOpen={isDetailModalOpen}
+	onClose={() => (isDetailModalOpen = false)}
 	title="Execution Diagnostic Details"
 	description="Safe operational metadata and failure categorization for this batch run."
 >

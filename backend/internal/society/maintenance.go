@@ -1240,6 +1240,7 @@ func (r *Repository) ListResidentBills(
 		  AND ur.status = 'ACTIVE'
 		  AND sm.status = 'ACTIVE'
 		  AND (ur.is_occupant = true OR ur.relationship_type IN ('PRIMARY_OWNER', 'SECONDARY_OWNER'))
+		  AND b.status != 'DRAFT'
 	`
 
 	var total int
@@ -1301,17 +1302,23 @@ func (r *Repository) GetResidentBillDetails(
 		return nil, errors.New("database pool unavailable")
 	}
 
-	// First verify the bill exists in the society and get its unit_id
+	// First verify the bill exists in the society and get its unit_id and status
 	var unitID uuid.UUID
+	var status string
 	err := r.pool.QueryRow(ctx, `
-		SELECT unit_id FROM maintenance_bills
+		SELECT unit_id, status FROM maintenance_bills
 		WHERE id = $1 AND society_id = $2
-	`, billID, societyID).Scan(&unitID)
+	`, billID, societyID).Scan(&unitID, &status)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrBillNotFound
 		}
 		return nil, fmt.Errorf("find bill: %w", err)
+	}
+
+	// Draft bills are unfinalized and not yet visible to residents
+	if status == "DRAFT" {
+		return nil, ErrBillNotFound
 	}
 
 	// Verify authorization for that unit
